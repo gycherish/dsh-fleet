@@ -1,6 +1,6 @@
 // Package envelope is the Go mirror of the dsh-fleet uplink wire contract.
 //
-// api/envelope.md is authoritative; this file follows it, and so does
+// docs/envelope.md is authoritative; this file follows it, and so does
 // dsh/src/protocol.ts. When they disagree, the document wins.
 //
 // The load-bearing property of these types is what they DO NOT contain: no dsh

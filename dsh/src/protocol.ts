@@ -1,6 +1,6 @@
 /**
  * The dsh-fleet uplink wire contract, TypeScript side. Derived from
- * `api/envelope.md`, which is authoritative when the two disagree; the Go
+ * `docs/envelope.md`, which is authoritative when the two disagree; the Go
  * mirror lives in `pkg/envelope`.
  *
  * Nothing here understands a dsh business payload. Request and response bodies

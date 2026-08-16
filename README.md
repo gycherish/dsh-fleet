@@ -123,7 +123,7 @@ The node plugin currently builds **against a local harness checkout**, expected 
 
 | Path | Contents |
 |---|---|
-| [`api/envelope.md`](api/envelope.md) | The wire protocol; single source of truth for both languages |
+| [`docs/envelope.md`](docs/envelope.md) | The wire protocol; single source of truth for both languages |
 | `cmd/dshf/` | Control-plane binary (daemon and operator CLI in one) |
 | `internal/` | Control-plane implementation |
 | `pkg/envelope/` | Go types for the protocol |
@@ -136,7 +136,7 @@ The control plane **never parses dsh business data**. It forwards opaque frames,
 
 The protocol carries a second `fleet` namespace for this project's own methods — node telemetry, file browsing — implemented by the plugin directly against Cordis services. That half is ours, so it does not move when dsh does.
 
-Details in [`api/envelope.md`](api/envelope.md).
+Details in [`docs/envelope.md`](docs/envelope.md).
 
 ## License
 

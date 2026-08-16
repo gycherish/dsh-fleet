@@ -123,7 +123,7 @@ curl localhost:8080/healthz
 
 | 路径 | 内容 |
 |---|---|
-| [`api/envelope.md`](api/envelope.md) | 通信协议，两种语言的唯一事实来源 |
+| [`docs/envelope.md`](docs/envelope.md) | 通信协议，两种语言的唯一事实来源 |
 | `cmd/dshf/` | 控制面二进制（守护进程与运维 CLI 合一） |
 | `internal/` | 控制面实现 |
 | `pkg/envelope/` | 协议的 Go 侧类型 |
@@ -136,7 +136,7 @@ curl localhost:8080/healthz
 
 协议里另有一个 `fleet` 命名空间，是本项目自己的方法（节点遥测、文件浏览等），由节点插件直接调用 Cordis 服务实现。这一半是我们自己的，不随 dsh 变动。
 
-细节见 [`api/envelope.md`](api/envelope.md)。
+细节见 [`docs/envelope.md`](docs/envelope.md)。
 
 ## 许可
 

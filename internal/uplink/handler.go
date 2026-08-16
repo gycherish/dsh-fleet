@@ -1,6 +1,6 @@
 // Package uplink accepts node connections and multiplexes requests over them.
 //
-// It parses exactly the envelope fields listed in api/envelope.md and nothing
+// It parses exactly the envelope fields listed in docs/envelope.md and nothing
 // else: request and response bodies pass through as opaque bytes, and
 // telemetry snapshots are stored verbatim. That restraint is what makes this
 // control plane independent of the DeepSeek Harness version its nodes run.
