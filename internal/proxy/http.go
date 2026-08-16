@@ -82,12 +82,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rest += "?" + r.URL.RawQuery
 	}
 
-	conn, online := h.Registry.Get(nodeID)
-	if !online {
-		http.Error(w, "node is not connected", http.StatusBadGateway)
-		return
-	}
-
+	// The gate runs before the connection lookup on purpose. A refusal must not
+	// depend on whether the machine happens to be up: otherwise the response
+	// leaks liveness for methods the caller may not use, and — worse — a denied
+	// attempt against an offline machine would leave no audit record at all.
 	ns, method := classify(rest)
 	if ns == envelope.NsDSH && !h.AllowPrivileged {
 		if _, blocked := privileged[method]; blocked {
@@ -95,6 +93,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "method is not available over the fleet carrier", http.StatusForbidden)
 			return
 		}
+	}
+
+	conn, online := h.Registry.Get(nodeID)
+	if !online {
+		h.record(nodeID, ns, method, true, http.StatusBadGateway, "machine is not connected")
+		http.Error(w, "node is not connected", http.StatusBadGateway)
+		return
 	}
 
 	// A body cap belongs here rather than at the node: an oversized upload
