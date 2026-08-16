@@ -4,6 +4,7 @@ go 1.23
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.1
 	golang.org/x/crypto v0.27.0
 )

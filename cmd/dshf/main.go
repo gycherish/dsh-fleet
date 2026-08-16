@@ -20,12 +20,16 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gycherish/dsh-fleet/internal/audit"
 	"github.com/gycherish/dsh-fleet/internal/config"
+	"github.com/gycherish/dsh-fleet/internal/console"
 	"github.com/gycherish/dsh-fleet/internal/nodes"
 	"github.com/gycherish/dsh-fleet/internal/proxy"
 	"github.com/gycherish/dsh-fleet/internal/store"
 	"github.com/gycherish/dsh-fleet/internal/uplink"
+	"github.com/gycherish/dsh-fleet/internal/users"
 )
 
 // version is stamped at build time via -ldflags.
@@ -52,6 +56,8 @@ func run(args []string) error {
 		return serve(args[1:])
 	case "node":
 		return nodeCmd(args[1:])
+	case "user":
+		return userCmd(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(version)
 		return nil
@@ -68,11 +74,13 @@ func usage() {
 	fmt.Fprint(os.Stderr, `dshf — dsh-fleet control plane
 
 Usage:
-  dshf serve                     run the control plane
-  dshf node add <id> [--label]   register a machine and mint its one-time token
-  dshf node ls                   list machines and their status
-  dshf node revoke <id>          withdraw a machine's token
-  dshf version                   print the build version
+  dshf serve                       run the control plane
+  dshf node add <id> [--label]     register a machine and mint its one-time token
+  dshf node ls                     list machines and their status
+  dshf node revoke <id>            withdraw a machine's token
+  dshf user add <name> [--admin]   create a console account
+  dshf user ls                     list console accounts
+  dshf version                     print the build version
 
 Configuration is environment-only; see deploy/.env.example.
 `)
@@ -111,12 +119,30 @@ func serve(_ []string) error {
 	}
 
 	nodeStore := nodes.New(pool)
+	userStore := users.New(pool)
 	registry := uplink.NewRegistry()
 	auditor, stopAudit := audit.New(pool, logger)
 	defer stopAudit()
 
+	created, err := userStore.EnsureBootstrapAdmin(bootCtx, cfg.AdminUser, cfg.AdminPassword)
+	if err != nil {
+		return err
+	}
+	if created {
+		logger.Info("bootstrap admin created", "user", cfg.AdminUser)
+	}
+
+	guard := &console.Guard{
+		Users: userStore,
+		Log:   logger,
+		// Follows the declared origin so a plain-HTTP development run still
+		// gets working cookies while a real deployment gets Secure ones.
+		Secure: cfg.PublicURL.Scheme == "https",
+	}
+
 	mux := http.NewServeMux()
 
+	// ── unauthenticated ──
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := pool.Ping(r.Context()); err != nil {
 			http.Error(w, "database unreachable", http.StatusServiceUnavailable)
@@ -125,7 +151,12 @@ func serve(_ []string) error {
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("GET /login", guard.LoginPage)
+	mux.HandleFunc("POST /login", guard.Login)
+	mux.HandleFunc("POST /logout", guard.Logout)
 
+	// The node uplink authenticates with its own token, not a console session,
+	// so it deliberately sits outside the browser guard.
 	mux.Handle("GET /uplink", &uplink.Handler{
 		Registry: registry,
 		Auth:     nodeStore,
@@ -135,20 +166,18 @@ func serve(_ []string) error {
 		Revoked:  nodes.ErrRevoked,
 	})
 
-	// Browser plane. There is NO user authentication yet, so this is bound to
-	// loopback by default (see DSHF_BIND) and must not be exposed until the
-	// console's own auth lands.
+	// ── behind the console session guard ──
 	proxyHandler := &proxy.Handler{
 		Registry:        registry,
 		Log:             logger,
 		Audit:           auditor,
 		AllowPrivileged: false,
 	}
-	mux.Handle("/n/{node}/{rest...}", proxyHandler)
-
-	mux.HandleFunc("GET /api/nodes", func(w http.ResponseWriter, r *http.Request) {
-		writeNodeList(w, r, nodeStore, registry, logger)
-	})
+	mux.Handle("/n/{node}/{rest...}", guard.Require(proxyHandler))
+	mux.Handle("GET /api/nodes", guard.Require(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			writeNodeList(w, r, nodeStore, registry, logger)
+		})))
 
 	server := &http.Server{
 		Addr:              cfg.Listen,
@@ -158,6 +187,8 @@ func serve(_ []string) error {
 		// long-lived, and a write deadline would sever them mid-stream.
 		IdleTimeout: 120 * time.Second,
 	}
+
+	go purgeSessions(ctx, userStore, logger)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -177,6 +208,28 @@ func serve(_ []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+// purgeSessions drops expired browser sessions hourly. Expiry is already
+// enforced on every lookup; this only keeps the table from growing forever.
+func purgeSessions(ctx context.Context, s *users.Store, log *slog.Logger) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := s.PurgeExpiredSessions(ctx)
+			if err != nil {
+				log.Warn("cannot purge sessions", "err", err)
+				continue
+			}
+			if n > 0 {
+				log.Info("purged expired sessions", "count", n)
+			}
+		}
+	}
 }
 
 func writeNodeList(w http.ResponseWriter, r *http.Request, s *nodes.Store, reg *uplink.Registry, log *slog.Logger) {
@@ -214,17 +267,11 @@ func nodeCmd(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: dshf node <add|ls|revoke>")
 	}
-	dsn, err := config.LoadDatabaseURL()
+	ctx, pool, cancel, err := operatorPool()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	pool, err := store.Open(ctx, dsn)
-	if err != nil {
-		return err
-	}
 	defer pool.Close()
 	s := nodes.New(pool)
 
@@ -232,22 +279,9 @@ func nodeCmd(args []string) error {
 	case "add":
 		fs := flag.NewFlagSet("node add", flag.ContinueOnError)
 		label := fs.String("label", "", "operator-facing display name")
-		// Two passes, because flag stops at the first positional: the first
-		// pass consumes any leading flags and surfaces the id, the second
-		// consumes flags written after it. Operators write both orders and
-		// neither should be a usage error.
-		if err := fs.Parse(args[1:]); err != nil {
+		id, err := parseOneArg(fs, args[1:], "dshf node add <id> [--label NAME]")
+		if err != nil {
 			return err
-		}
-		if fs.NArg() == 0 {
-			return errors.New("usage: dshf node add <id> [--label NAME]")
-		}
-		id := fs.Arg(0)
-		if err := fs.Parse(fs.Args()[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 0 {
-			return fmt.Errorf("unexpected arguments after node id: %s", strings.Join(fs.Args(), " "))
 		}
 		token, err := s.Register(ctx, id, *label)
 		if err != nil {
@@ -287,6 +321,95 @@ func nodeCmd(args []string) error {
 	default:
 		return fmt.Errorf("unknown node subcommand %q", args[0])
 	}
+}
+
+// ── user ─────────────────────────────────────────────────────────────────────
+
+func userCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: dshf user <add|ls>")
+	}
+	ctx, pool, cancel, err := operatorPool()
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer pool.Close()
+	s := users.New(pool)
+
+	switch args[0] {
+	case "add":
+		fs := flag.NewFlagSet("user add", flag.ContinueOnError)
+		admin := fs.Bool("admin", false, "grant administrator rights")
+		name, err := parseOneArg(fs, args[1:], "dshf user add <name> [--admin]")
+		if err != nil {
+			return err
+		}
+		// Read from the environment rather than a flag: a password in argv is
+		// visible in the process list and in shell history.
+		password := os.Getenv("DSHF_NEW_PASSWORD")
+		if strings.TrimSpace(password) == "" {
+			return errors.New("set DSHF_NEW_PASSWORD to the new account's password")
+		}
+		u, err := s.Create(ctx, name, password, *admin)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("created account %q (admin=%t)\n", u.Username, u.IsAdmin)
+		return nil
+
+	case "ls":
+		list, err := s.List(ctx)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "USERNAME\tADMIN\tCREATED")
+		for _, u := range list {
+			fmt.Fprintf(tw, "%s\t%t\t%s\n", u.Username, u.IsAdmin, u.CreatedAt.Local().Format(time.RFC3339))
+		}
+		return tw.Flush()
+
+	default:
+		return fmt.Errorf("unknown user subcommand %q", args[0])
+	}
+}
+
+// ── shared helpers ───────────────────────────────────────────────────────────
+
+// operatorPool opens the database for a one-shot CLI command.
+func operatorPool() (context.Context, *pgxpool.Pool, context.CancelFunc, error) {
+	dsn, err := config.LoadDatabaseURL()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	pool, err := store.Open(ctx, dsn)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, err
+	}
+	return ctx, pool, cancel, nil
+}
+
+// parseOneArg reads flags written before or after the single positional
+// argument, because Go's flag package stops at the first non-flag token and
+// operators write both orders.
+func parseOneArg(fs *flag.FlagSet, args []string, usage string) (string, error) {
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	if fs.NArg() == 0 {
+		return "", errors.New("usage: " + usage)
+	}
+	value := fs.Arg(0)
+	if err := fs.Parse(fs.Args()[1:]); err != nil {
+		return "", err
+	}
+	if fs.NArg() != 0 {
+		return "", fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	return value, nil
 }
 
 // nodeStatus reports liveness from last_seen_at rather than a stored flag, so
