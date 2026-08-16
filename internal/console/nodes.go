@@ -46,6 +46,9 @@ type nodeView struct {
 	Tools    int
 	Failed   int
 	Plugins  int
+	// Current marks the machine this browser is already driving, so the page
+	// orients someone who came back to switch.
+	Current bool
 }
 
 // snapshot is the subset of a node's telemetry this page displays. Every field
@@ -73,9 +76,12 @@ func (p *NodesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		online[id] = true
 	}
 
+	current := SelectedNode(r)
 	views := make([]nodeView, 0, len(list))
 	for _, n := range list {
-		views = append(views, project(n, online[n.ID]))
+		v := project(n, online[n.ID])
+		v.Current = n.ID == current
+		views = append(views, v)
 	}
 
 	user := UserFrom(r.Context())
@@ -83,7 +89,16 @@ func (p *NodesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		username = user.Username
 	}
-	renderNodes(w, nodesData{Nodes: views, User: username})
+	renderNodes(w, nodesData{Nodes: views, User: username, Prefix: Prefix})
+}
+
+// Home sends a bare visit to the reserved prefix on to the chooser.
+//
+// Once a machine is selected it owns the origin root, so this short URL is the
+// only way back that does not involve remembering a longer one. On a phone
+// that difference decides whether the console is usable at all.
+func Home(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, PathConsole, http.StatusSeeOther)
 }
 
 // Select points this browser at one machine and hands it the origin root.

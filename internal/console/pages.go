@@ -21,8 +21,9 @@ type loginData struct {
 }
 
 type nodesData struct {
-	Nodes []nodeView
-	User  string
+	Nodes  []nodeView
+	User   string
+	Prefix string
 }
 
 func renderNodes(w http.ResponseWriter, data nodesData) {

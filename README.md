@@ -98,7 +98,9 @@ Without `DSH_FLEET_URL` the plugin stays inert, so installing it never changes h
 
 The plugin serves `/api` from the in-process gateway and everything else from this node's own web server (`localWebUrl`, default `http://127.0.0.1:3080`). That is why the browser gets the node's real frontend — boot manifest and client plugin bundles included — rather than an approximation of it.
 
-Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time, and switching is a page load rather than an in-app gesture.
+Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time.
+
+Since the machine then owns every address, **`/_fleet/` is the way back** to the chooser — worth a bookmark on a phone.
 
 > If you plan to drive this machine from a phone, pin its directory picker to browse mode — the native picker can only be clicked on that machine's own desktop. The plugin's config layer ships the one-line override with a comment explaining it.
 

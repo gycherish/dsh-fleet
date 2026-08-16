@@ -40,6 +40,12 @@ li a {
   border-radius: 10px; padding: .9rem 1rem; text-decoration: none; color: inherit;
 }
 li a:hover, li a:focus-visible { border-color: var(--accent); outline: none; }
+li a.current { border-color: var(--accent); }
+.badge {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 999px; padding: .05rem .4rem;
+}
 .top { display: flex; align-items: center; gap: .5rem; }
 .name { font-weight: 600; }
 .dot { width: .55rem; height: .55rem; border-radius: 50%; flex: none; background: var(--off); }
@@ -55,6 +61,7 @@ li a:hover, li a:focus-visible { border-color: var(--accent); outline: none; }
   background: var(--card); border: 1px dashed var(--rule); border-radius: 10px;
   padding: 1.5rem; text-align: center; color: var(--muted);
 }
+.hint { margin: 1.25rem 0 0; font-size: .78rem; color: var(--muted); text-align: center; }
 code {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: .85em; background: var(--bg); border: 1px solid var(--rule);
@@ -76,10 +83,11 @@ code {
   <ul>
     {{range .Nodes}}
     <li>
-      <a class="{{.Status}}" href="/_fleet/select/{{.ID}}">
+      <a class="{{.Status}}{{if .Current}} current{{end}}" href="/_fleet/select/{{.ID}}">
         <span class="top">
           <span class="dot" aria-hidden="true"></span>
           <span class="name">{{.Label}}</span>
+          {{if .Current}}<span class="badge">current</span>{{end}}
           <span class="state">{{.Status}}</span>
         </span>
         <span class="meta">
@@ -100,6 +108,11 @@ code {
     Run <code>dshf node add &lt;id&gt;</code> to mint a token.
   </p>
   {{end}}
+
+  <p class="hint">
+    Opening a machine gives it this whole address, so bookmark
+    <code>{{.Prefix}}/</code> to come back here and switch.
+  </p>
 </div>
 </body>
 </html>

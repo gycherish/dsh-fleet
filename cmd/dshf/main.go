@@ -167,6 +167,9 @@ func serve(_ []string) error {
 	})
 
 	// ── the console, behind the session guard ──
+	// A bare visit to the reserved prefix is the short way back to the chooser
+	// once a machine has taken over the origin root.
+	mux.Handle("GET "+console.Prefix+"/{$}", guard.Require(http.HandlerFunc(console.Home)))
 	mux.Handle("GET "+console.PathConsole, guard.Require(&console.NodesPage{
 		Nodes: nodeStore,
 		Live:  registry,
