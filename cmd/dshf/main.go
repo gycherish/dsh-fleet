@@ -20,12 +20,12 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dsh-fleet/dsh-fleet/internal/audit"
-	"github.com/dsh-fleet/dsh-fleet/internal/config"
-	"github.com/dsh-fleet/dsh-fleet/internal/nodes"
-	"github.com/dsh-fleet/dsh-fleet/internal/proxy"
-	"github.com/dsh-fleet/dsh-fleet/internal/store"
-	"github.com/dsh-fleet/dsh-fleet/internal/uplink"
+	"github.com/gycherish/dsh-fleet/internal/audit"
+	"github.com/gycherish/dsh-fleet/internal/config"
+	"github.com/gycherish/dsh-fleet/internal/nodes"
+	"github.com/gycherish/dsh-fleet/internal/proxy"
+	"github.com/gycherish/dsh-fleet/internal/store"
+	"github.com/gycherish/dsh-fleet/internal/uplink"
 )
 
 // version is stamped at build time via -ldflags.

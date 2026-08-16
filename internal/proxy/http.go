@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dsh-fleet/dsh-fleet/internal/uplink"
-	"github.com/dsh-fleet/dsh-fleet/pkg/envelope"
+	"github.com/gycherish/dsh-fleet/internal/uplink"
+	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
 
 // privileged names the dsh methods that dsh's own browser carrier pins to

@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dsh-fleet/dsh-fleet/internal/auth"
-	"github.com/dsh-fleet/dsh-fleet/pkg/envelope"
+	"github.com/gycherish/dsh-fleet/internal/auth"
+	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
 
 // ErrNotFound reports an unregistered node id.

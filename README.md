@@ -1,141 +1,141 @@
 # dsh-fleet
 
-One console for all your [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) machines — reachable from your phone.
+用一个控制台管理你所有跑着 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）的机器——手机上也能用。
 
-Each machine runs an ordinary `dsh web` plus one small plugin that dials **out** to the control plane. The control plane authenticates you, routes opaque frames, and serves each node's own frontend. Nodes need no inbound port and work behind NAT.
+每台机器照常跑 `dsh web`，外加一个小插件**主动拨出**连到控制面。控制面负责认证、路由和会话管理。节点不需要开放任何入站端口，在 NAT 后面也能用。
 
 ```
-        phone / laptop browser
+        手机 / 电脑浏览器
                  │ HTTPS + WS
                  ▼
         ┌──────────────────┐
-        │  dshf  (Go)      │   auth · node registry · frame router
+        │  dshf  (Go)      │   认证 · 节点注册表 · 帧路由
         │  PostgreSQL      │
         └──────────────────┘
-                 ▲ WSS (node dials out)
+                 ▲ WSS（节点主动拨出）
       ┌──────────┼──────────┐
    ┌──┴──┐    ┌──┴──┐    ┌──┴──┐
-   │ dsh │    │ dsh │    │ dsh │   + @…/dsh-fleet-node
+   │ dsh │    │ dsh │    │ dsh │   + dsh-fleet 节点插件
    └─────┘    └─────┘    └─────┘
 ```
 
-## Why not just expose `dsh web`
+每个节点上的 agent 都是**真正本地**的——git、编译、测试、语言服务器全都跑在那台机器上。控制面只做转发，不代理执行。
 
-`dsh web` binds loopback on purpose. Its own docs are explicit:
+## 为什么不直接把 `dsh web` 暴露出去
 
-> The fence is a reachability policy, **not authentication**; the Web carrier provides no authentication layer.
+因为它没有认证。dsh 自己的文档写得很直白：
 
-`dsh-fleet` supplies the missing layer and the multi-machine view, without forking dsh: the node plugin is an ordinary Cordis plugin over the transport-agnostic `ctx.apiProxy`, which dsh already designed for exactly this (`toFetchHandler` is its HTTP carrier; this is a second one).
+> 这道围栏是可达性策略，**不是认证**；Web 载体不提供任何认证层。
 
-## Status
+`dsh-fleet` 补上这一层，并顺带给你多机视图。它不 fork dsh——节点插件是一个普通的 Cordis 插件，挂在 dsh 本来就设计成传输无关的网关上。
 
-Pre-alpha. The protocol in [`api/envelope.md`](api/envelope.md) is versioned but not yet stable.
+## 当前状态
 
-## What works today
+**Pre-alpha。** 节点接入这条链路已经打通并验证过；控制台本身还没有。
 
-The uplink is live: a node authenticates, is tracked, reports telemetry, and
-serves proxied requests. What is missing is the console itself — there is no
-user authentication and no UI, so `DSHF_BIND` keeps the browser plane on
-loopback and must stay there until that lands.
-
-| | |
+| 能力 | 状态 |
 |---|---|
-| Node registration, one-time tokens, revocation | ✅ `dshf node add/ls/revoke` |
-| Uplink handshake, auth, duplicate refusal, heartbeat | ✅ |
-| Telemetry ingest (history + denormalised latest) | ✅ |
-| Request proxy with streaming and per-chunk flush | ✅ |
-| Privilege gate over dsh's loopback-pinned methods | ✅ audited, deny by default |
-| Console user accounts and sessions | ❌ |
-| Frontend asset pass-through | ❌ |
+| 节点注册、一次性 token、吊销 | ✅ |
+| 节点接入、认证、心跳、重连 | ✅ |
+| 节点遥测（版本、插件树、agent 数） | ✅ |
+| 请求转发（含流式与审批往返） | ✅ |
+| 特权方法拦截 + 审计 | ✅ 默认拒绝 |
+| 控制台账号与界面 | ❌ |
+| 前端资源透传 | ❌ |
 
-## Development (local, no container)
+因为还没有用户认证，控制面默认只绑在 loopback 上。**在账号体系落地前不要对外暴露。**
 
-pixi provides Node, pnpm, and PostgreSQL, so the inner loop never waits on a
-daemon. Go is expected on `PATH` and is deliberately not managed by pixi.
+## 快速开始（Docker）
+
+Docker 是推荐的部署方式。
+
+```sh
+cp deploy/.env.example deploy/.env    # 改掉两个密码
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+注册一台机器，拿到它的一次性 token：
+
+```sh
+docker compose -f deploy/docker-compose.yml exec dshf \
+  dshf node add laptop --label "我的笔记本"
+```
+
+```
+registered node "laptop"
+
+  DSH_FLEET_NODE_ID=laptop
+  DSH_FLEET_TOKEN=nt_...
+
+This token is shown once.
+```
+
+其他命令：`dshf node ls` 看状态，`dshf node revoke <id>` 吊销。
+
+## 接入一台机器
+
+在要被管理的机器上装插件：
+
+```sh
+dsh plugin --profile web add <这个包>
+```
+
+然后设三个环境变量，照常启动 `dsh web`：
+
+```sh
+export DSH_FLEET_URL=wss://fleet.example.com/uplink
+export DSH_FLEET_NODE_ID=laptop
+export DSH_FLEET_TOKEN=nt_...
+
+dsh web
+```
+
+插件在没有配置 `DSH_FLEET_URL` 时是完全不生效的，所以装上它不会改变 `dsh web` 原本的行为。
+
+> 如果你打算从手机操作这台机器，建议把它的目录选择器固定为浏览模式——原生选择器只能在本机桌面上点。插件的配置层里有现成的一行注释说明。
+
+## 本地开发
+
+pixi 负责 Node、pnpm 和一个本地 PostgreSQL，所以开发时不需要容器。Go 用你自己装的。
 
 ```sh
 pixi install
 
-# once
-pixi run pg-init
-pixi run pg-start
-pixi run pg-create
+# 首次
+pixi run pg-init && pixi run pg-start && pixi run pg-create
 
-# the node plugin
-pixi run typecheck          # or: pixi run build
+# 节点插件
+pixi run typecheck
 
-# the control plane
-cp .env.local.example .env.local     # then export it, see the file header
+# 控制面
+cp .env.local.example .env.local     # 导出方式见文件头部注释
 go run ./cmd/dshf serve
 curl localhost:8080/healthz
 ```
 
-`pg-start` / `pg-stop` are all you need afterwards. The cluster lives in
-`.devdata/` on port **5433**, chosen so it never collides with a system
-PostgreSQL, and `dshf serve` applies migrations at boot.
+之后只需要 `pixi run pg-start` / `pg-stop`。数据库在 `.devdata/`，端口 5433（避开系统的 PostgreSQL）。迁移在 `dshf serve` 启动时自动执行。
 
-## Quick start (Docker — the supported deployment)
+节点插件目前**对着本地的 harness 源码构建**，需要 `deepseek-harness` 检出在本仓库旁边并已 `pnpm run build`。npm 上已发布的 `@deepseek-ai` 包目前还不完整，暂时不能作为构建来源。
 
-```sh
-cp deploy/.env.example deploy/.env   # set DSHF_ADMIN_PASSWORD, POSTGRES_PASSWORD
-docker compose -f deploy/docker-compose.yml up -d
-```
+## 目录
 
-Then register a node and mint its token:
-
-```sh
-docker compose -f deploy/docker-compose.yml exec dshf \
-  dshf node add laptop --label "ThinkPad"
-# prints: node id + one-time token
-```
-
-On the machine you want to control:
-
-```sh
-dsh plugin --profile web add @your-scope/dsh-fleet-node
-```
-
-and add to `$DSH_HOME/profiles/web/cordis.patch.yml`:
-
-```yaml
-- insert:
-    - id: fleet-node
-      name: '@your-scope/dsh-fleet-node'
-      config:
-        url: 'wss://fleet.example.com/uplink'
-        nodeId: 'laptop'
-        token: !!js process.env.DSH_FLEET_TOKEN
-```
-
-Then `DSH_FLEET_TOKEN=… dsh web` as usual. The node appears in the console.
-
-## Layout
-
-| Path | What |
+| 路径 | 内容 |
 |---|---|
-| [`api/envelope.md`](api/envelope.md) | The wire contract. Single source of truth for both languages. |
-| `cmd/dshf/` | Control-plane binary (CLI + `dshf serve`). |
-| `internal/` | Control-plane implementation. |
-| `pkg/envelope/` | Go mirror of the wire contract. |
-| [`dsh/`](dsh/) | The dsh node plugin (TypeScript). |
-| `deploy/` | Dockerfile, compose, migrations. |
-| `pixi.toml` | Node, pnpm, and a local PostgreSQL for development. |
+| [`api/envelope.md`](api/envelope.md) | 通信协议，两种语言的唯一事实来源 |
+| `cmd/dshf/` | 控制面二进制（守护进程 + 运维 CLI 合一） |
+| `internal/` | 控制面实现 |
+| `pkg/envelope/` | 协议的 Go 侧类型 |
+| [`dsh/`](dsh/) | dsh 节点插件（TypeScript） |
+| `deploy/` | Dockerfile、compose、数据库迁移 |
 
-The plugin builds against a **local harness checkout**, expected beside this
-repository as `../deepseek-harness` and already built. The published
-`@deepseek-ai` set is currently stale — `dsh-host-apiproxy` resolves to
-`0.0.1-rc.1`, whose own dependency `@deepseek-ai/dsh-user-interaction` is not
-in the registry at all — so npm is not yet a usable build source. Runtime
-resolution is unaffected: an installed profile gets these packages from the
-dsh installation's own module farm, which is why they are peer dependencies.
+## 设计要点
 
-## Two namespaces, one channel
+控制面**不解析任何 dsh 的业务数据**。它转发不透明的帧、关联请求 id、执行自己的访问策略，仅此而已。这是刻意的：正因为它不认识 dsh 的接口，dsh 升级时它不需要跟着改。
 
-The uplink carries two kinds of request, and the distinction is the whole design:
+协议里另有一个 `fleet` 命名空间，是本项目自己的方法（节点遥测、文件浏览等），由节点插件直接调用 Cordis 服务实现。这部分是我们自己的，不随 dsh 变动。
 
-- **`dsh`** — tunnelled HTTP to the node's `/api` fetch handler. The control plane **never parses these bodies**; it moves bytes and correlates ids. This is why the control plane is version-independent from dsh.
-- **`fleet`** — this project's own methods, implemented by the node plugin against ordinary Cordis services (`ctx.fs`, `ctx.loader`, `ctx.agents`). Node telemetry and file reads live here. This namespace is ours, so it does not move when dsh does.
+细节见 [`api/envelope.md`](api/envelope.md)。
 
-## License
+## 许可
 
-MIT
+[MIT](LICENSE)

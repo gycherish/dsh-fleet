@@ -12,7 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/dsh-fleet/dsh-fleet/pkg/envelope"
+	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
 
 // Tunable connection parameters. These are the values offered in `welcome`,

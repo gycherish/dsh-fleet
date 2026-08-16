@@ -1,4 +1,4 @@
-module github.com/dsh-fleet/dsh-fleet
+module github.com/gycherish/dsh-fleet
 
 go 1.23
 

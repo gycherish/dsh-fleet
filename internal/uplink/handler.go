@@ -16,7 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/dsh-fleet/dsh-fleet/pkg/envelope"
+	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
 
 // authDeadline bounds how long a socket may stay anonymous. A connection that
