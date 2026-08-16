@@ -21,7 +21,7 @@ Each machine runs an ordinary `dsh web` plus a small plugin that dials **out** t
    └─────┘    └─────┘    └─────┘
 ```
 
-Every node's agent is **genuinely local** — git, builds, tests, and language servers all run on that machine. The control plane forwards; it does not execute on anyone's behalf.
+Every node's agent is **genuinely local** — git, builds, tests, and language servers all run on that machine. The control plane forwards; it does not execute on anyone's behalf. What the browser loads is that node's own dsh UI, served through the uplink.
 
 ## Why not just expose `dsh web`
 
@@ -31,25 +31,9 @@ Because it has no authentication. dsh's own documentation is explicit:
 
 `dsh-fleet` supplies that layer, and the multi-machine view along with it. It does not fork dsh: the node plugin is an ordinary Cordis plugin over the gateway dsh already designed to be transport-agnostic.
 
-## Status
+Pre-alpha. There is no TLS and no rate limiting yet, so put a terminating proxy in front before exposing this anywhere; `DSHF_BIND` keeps it on loopback until you do.
 
-**Pre-alpha.** The node path is built and verified end to end. The console itself is not.
-
-| Capability | State |
-|---|---|
-| Node registration, one-time tokens, revocation | ✅ |
-| Uplink handshake, authentication, heartbeat, reconnect | ✅ |
-| Node telemetry (versions, plugin tree, agent counts) | ✅ |
-| Request forwarding, including streaming and approvals | ✅ |
-| Privileged-method gate with an audit trail | ✅ deny by default |
-| Console accounts, sessions, machine chooser | ✅ |
-| Frontend pass-through — the node's own UI, end to end | ✅ |
-
-Verified against a real `dsh web`: the browser loads that node's own frontend byte for byte, its assets and client plugin bundles resolve, `/api` calls answer, and both SSE downlinks stream.
-
-There is still no TLS and no rate limiting, so put a terminating proxy in front before exposing this anywhere. `DSHF_BIND` keeps it on loopback until you do.
-
-## Quick start (Docker)
+## Quick start
 
 Docker is the supported deployment.
 
@@ -65,28 +49,15 @@ docker compose -f deploy/docker-compose.yml exec dshf \
   dshf node add laptop --label "My laptop"
 ```
 
-```
-registered node "laptop"
-
-  DSH_FLEET_NODE_ID=laptop
-  DSH_FLEET_TOKEN=nt_...
-
-This token is shown once.
-```
-
-Also available: `dshf node ls` for status, `dshf node revoke <id>` to withdraw a token.
+Also available: `dshf node ls`, `dshf node revoke <id>`, `dshf user add <name>`.
 
 ## Connecting a machine
 
-Install the plugin on the machine you want to reach:
+Install the plugin on the machine you want to reach, then set three environment variables and start `dsh web` as usual:
 
 ```sh
 dsh plugin --profile web add <this package>
-```
 
-Set three environment variables and start `dsh web` as usual:
-
-```sh
 export DSH_FLEET_URL=wss://fleet.example.com/uplink
 export DSH_FLEET_NODE_ID=laptop
 export DSH_FLEET_TOKEN=nt_...
@@ -96,13 +67,9 @@ dsh web
 
 Without `DSH_FLEET_URL` the plugin stays inert, so installing it never changes how `dsh web` already behaves.
 
-The plugin serves `/api` from the in-process gateway and everything else from this node's own web server (`localWebUrl`, default `http://127.0.0.1:3080`). That is why the browser gets the node's real frontend — boot manifest and client plugin bundles included — rather than an approximation of it.
+Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time, and **`/_fleet/` is the way back** to the chooser — worth a bookmark on a phone.
 
-Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time.
-
-Since the machine then owns every address, **`/_fleet/` is the way back** to the chooser — worth a bookmark on a phone.
-
-> If you plan to drive this machine from a phone, pin its directory picker to browse mode — the native picker can only be clicked on that machine's own desktop. The plugin's config layer ships the one-line override with a comment explaining it.
+> If you plan to drive a machine from a phone, pin its directory picker to browse mode; the native picker can only be clicked on that machine's own desktop. The plugin's config layer ships the one-line override.
 
 ## Development
 
@@ -110,41 +77,22 @@ pixi provides Node, pnpm, and a local PostgreSQL, so the inner loop needs no con
 
 ```sh
 pixi install
-
-# once
-pixi run pg-init && pixi run pg-start && pixi run pg-create
-
-# the node plugin
-pixi run typecheck
-
-# the control plane
-cp .env.local.example .env.local     # export it; see the file header
-go run ./cmd/dshf serve
-curl localhost:8080/healthz
+pixi run pg-init && pixi run pg-start && pixi run pg-create   # once
+pixi run typecheck                                            # the node plugin
+go run ./cmd/dshf serve                                       # the control plane
 ```
 
-Afterwards only `pixi run pg-start` / `pg-stop` are needed. The cluster lives in `.devdata/` on port 5433, chosen so it never collides with a system PostgreSQL. Migrations run when `dshf serve` boots.
+Copy `.env.local.example` to `.env.local` and export it first; the file header shows how. Afterwards only `pixi run pg-start` / `pg-stop` are needed.
 
-The node plugin currently builds **against a local harness checkout**, expected as `deepseek-harness` beside this repository and already built with `pnpm run build`. The published `@deepseek-ai` packages are incomplete for now and cannot serve as a build source.
-
-## Layout
-
-| Path | Contents |
-|---|---|
-| [`docs/envelope.md`](docs/envelope.md) | The wire protocol; single source of truth for both languages |
-| `cmd/dshf/` | Control-plane binary (daemon and operator CLI in one) |
-| `internal/` | Control-plane implementation |
-| `pkg/envelope/` | Go types for the protocol |
-| [`dsh/`](dsh/) | The dsh node plugin (TypeScript) |
-| `deploy/` | Dockerfile, compose, database migrations |
+The node plugin builds **against a local harness checkout**, expected as `deepseek-harness` beside this repository and already built. The published `@deepseek-ai` packages are incomplete for now and cannot serve as a build source.
 
 ## Design note
 
-The control plane **never parses dsh business data**. It forwards opaque frames, correlates request ids, and applies its own access policy. That restraint is deliberate: because it does not understand dsh's API, a dsh upgrade does not require a control-plane release.
+The control plane **never parses dsh business data**. It forwards opaque frames, correlates request ids, and applies its own access policy. Because it does not understand dsh's API, a dsh upgrade does not require a control-plane release.
 
-The protocol carries a second `fleet` namespace for this project's own methods — node telemetry, file browsing — implemented by the plugin directly against Cordis services. That half is ours, so it does not move when dsh does.
+A second `fleet` namespace carries this project's own methods — node telemetry, file browsing — implemented by the plugin directly against Cordis services. That half is ours, so it does not move when dsh does.
 
-Details in [`docs/envelope.md`](docs/envelope.md).
+The wire contract is [`docs/envelope.md`](docs/envelope.md).
 
 ## License
 
