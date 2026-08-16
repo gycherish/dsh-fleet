@@ -24,13 +24,21 @@
         token: !!js process.env.DSH_FLEET_TOKEN ?? ''
         label: !!js process.env.DSH_FLEET_LABEL
 
-# A phone cannot answer a native directory chooser: `host.pickDirectory` is
-# pinned to loopback by dsh's own browser carrier, and the auto picker selects
-# the native backend on any machine with a display. Pin the browse backend so
-# `host.listDirectory` — an ordinary, unpinned method — serves the picker
-# instead, and choosing a workspace works from a remote browser.
+# A remote browser cannot answer a native directory chooser: it opens on THIS
+# machine's desktop, and `host.pickDirectory` is a privileged method the fleet
+# carrier refuses besides. The auto picker selects that native backend on any
+# machine with a display, so "add workspace" fails from a phone.
 #
-# Remove this row from your profile patch if this node is only ever driven
-# from its own desktop.
+# Swapping it takes two rows, not one: an id-targeted patch treats `name` as an
+# ASSERTION that it is editing the row it thinks it is, and skips itself with a
+# "name mismatch" warning when it differs. So disable the composed row and
+# mount the browse backend beside it.
+#
+# Drop both rows from your profile patch if this node is only ever driven from
+# its own desktop.
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-browse'
+  disabled: true
+
+- insert:
+    - id: fleet-directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'

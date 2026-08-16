@@ -140,12 +140,40 @@ function assertUsable(config: Config): void {
 }
 
 /**
+ * Warn when this node's directory picker cannot be operated remotely.
+ *
+ * The `native` backend opens a chooser on THIS machine's desktop, which a
+ * remote browser can neither see nor click, and the fleet carrier refuses
+ * `host.pickDirectory` as a privileged method besides. The result in the
+ * browser is an opaque failure on "add workspace", far from its cause — so the
+ * node says so at load instead.
+ *
+ * The service is read through an injected child fiber rather than this
+ * plugin's own `inject`, because a headless node composes no picker at all and
+ * must not be held back by one.
+ *
+ * @param ctx - the plugin context.
+ */
+function warnOnUnreachableDirectoryPicker(ctx: Context): void {
+  ctx.inject(['directoryPicker'], (child: Context) => {
+    const picker = child.get('directoryPicker') as { capability?: () => { kind?: string } } | undefined
+    const kind = picker?.capability?.().kind
+    if (kind === undefined || kind === 'browse') return
+    child.logger('fleet-node').warn(
+      `directory picker is "${kind}": a remote browser cannot select a workspace on this node. `
+      + 'Pin @deepseek-ai/dsh-host-directory-picker-browse on the `directory-picker` row to fix it.',
+    )
+  })
+}
+
+/**
  * Mount the uplink for this node.
  * @param ctx - the plugin context, with `apiProxy` ready.
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config): void {
   assertUsable(config)
+  warnOnUnreachableDirectoryPicker(ctx)
 
   ctx.effect(() => {
     const uplink = new Uplink(ctx, {
