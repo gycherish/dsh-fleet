@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push makes an in-flight run obsolete; cancelling frees the runner
+# rather than reporting on code nobody is waiting for.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatting
+        # gofmt exits 0 whatever it finds, so the file list is the signal.
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would rewrite these files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Tidy
+        # A stale go.mod or go.sum breaks `go install` for anyone downstream
+        # long before it breaks the build here.
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          # Not pushed: this job exists to prove the supported deployment path
+          # still builds, which is the thing most likely to rot unnoticed.
+          push: false
+          load: true
+          tags: dshf:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke
+        # The binary must at least start and report itself. distroless has no
+        # shell, so this runs the entrypoint directly.
+        run: docker run --rm dshf:ci version
+
+  compose:
+    name: Compose stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Boot the documented quick start
+        run: |
+          cp deploy/.env.example deploy/.env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-postgres/' deploy/.env
+          sed -i 's/^DSHF_ADMIN_PASSWORD=.*/DSHF_ADMIN_PASSWORD=ci-admin-password/' deploy/.env
+          docker compose -f deploy/docker-compose.yml up -d --wait --wait-timeout 180
+
+      - name: Health and migrations
+        run: |
+          curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://127.0.0.1:8080/healthz
+          docker compose -f deploy/docker-compose.yml exec -T dshf dshf node add ci-node --label CI
+          docker compose -f deploy/docker-compose.yml exec -T dshf dshf node ls
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  # The node plugin is not typechecked here yet: it builds against a local
+  # DeepSeek Harness checkout because the published @deepseek-ai packages are
+  # incomplete (dsh-host-apiproxy resolves to 0.0.1-rc.1, whose own dependency
+  # dsh-user-interaction is absent from the registry). Checking the harness out
+  # and building that monorepo per run would cost more than the check is worth
+  # today. Revisit when the packages publish completely.
