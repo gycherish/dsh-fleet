@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gycherish/dsh-fleet/internal/nodes"
@@ -83,6 +84,21 @@ func (p *NodesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		username = user.Username
 	}
 	renderNodes(w, nodesData{Nodes: views, User: username})
+}
+
+// Select points this browser at one machine and hands it the origin root.
+//
+// The redirect is what makes the scheme work: from here on the browser is
+// talking to the node's own application at `/`, exactly the paths that
+// application expects to own.
+func (g *Guard) Select(w http.ResponseWriter, r *http.Request) {
+	nodeID := strings.TrimPrefix(r.URL.Path, PathSelect)
+	if nodeID == "" || strings.Contains(nodeID, "/") {
+		http.Error(w, "no machine named", http.StatusBadRequest)
+		return
+	}
+	g.SetNode(w, nodeID)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func project(n nodes.Node, live bool) nodeView {

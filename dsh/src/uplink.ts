@@ -42,6 +42,8 @@ export interface UplinkOptions {
   reconnectMaxMs: number
   /** Refused if the control plane proposes a larger chunk. */
   maxChunkBytes: number
+  /** Origin of this node's own `dsh web` server, for asset requests. */
+  localWebUrl: string
   /** File-family confinement, passed through to the `fleet` dispatcher. */
   fileAccess: FileAccessPolicy
 }
@@ -279,7 +281,21 @@ export class Uplink {
     if (frame.body !== undefined && frame.method !== 'GET' && frame.method !== 'HEAD') {
       init.body = decodePayload(frame.body)
     }
-    const response = await this.fetchApi.fetch(new Request(`${SYNTHETIC_ORIGIN}${frame.path}`, init))
+
+    // `/api` is the gateway; everything else is the browser application.
+    //
+    // The two take different routes because they are served by different
+    // things. `ctx.apiProxy` is the transport-agnostic gateway, reachable
+    // in-process. The frontend is served by the webserver's fallback seat,
+    // which `toFetchHandler` knows nothing about — so asset requests go out to
+    // this node's own HTTP server, which already owns SPA fallback, the boot
+    // manifest injected into index.html, and `/plugins/<id>/client.js`.
+    //
+    // Reimplementing any of that here would mean reimplementing it wrongly.
+    const response = frame.path.startsWith('/api/')
+      ? await this.fetchApi.fetch(new Request(`${SYNTHETIC_ORIGIN}${frame.path}`, init))
+      : await fetch(new URL(frame.path, this.options.localWebUrl), init)
+
     await this.stream(frame.id, response, signal)
   }
 

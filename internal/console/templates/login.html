@@ -54,7 +54,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 <main>
   <h1>dsh-fleet</h1>
   <p class="sub">Sign in to reach your machines.</p>
-  <form method="post" action="/login" autocomplete="on">
+  <form method="post" action="/_fleet/login" autocomplete="on">
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <input type="hidden" name="next" value="{{.Next}}">
     <label>Username

@@ -151,9 +151,9 @@ func serve(_ []string) error {
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	mux.HandleFunc("GET /login", guard.LoginPage)
-	mux.HandleFunc("POST /login", guard.Login)
-	mux.HandleFunc("POST /logout", guard.Logout)
+	mux.HandleFunc("GET "+console.PathLogin, guard.LoginPage)
+	mux.HandleFunc("POST "+console.PathLogin, guard.Login)
+	mux.HandleFunc("POST "+console.PathLogout, guard.Logout)
 
 	// The node uplink authenticates with its own token, not a console session,
 	// so it deliberately sits outside the browser guard.
@@ -166,25 +166,31 @@ func serve(_ []string) error {
 		Revoked:  nodes.ErrRevoked,
 	})
 
-	// ── behind the console session guard ──
-	proxyHandler := &proxy.Handler{
-		Registry:        registry,
-		Log:             logger,
-		Audit:           auditor,
-		AllowPrivileged: false,
-	}
-	// `{$}` matches only the bare root, so it does not swallow every unmatched
-	// path the way a plain "/" pattern would.
-	mux.Handle("GET /{$}", guard.Require(&console.NodesPage{
+	// ── the console, behind the session guard ──
+	mux.Handle("GET "+console.PathConsole, guard.Require(&console.NodesPage{
 		Nodes: nodeStore,
 		Live:  registry,
 		Log:   logger,
 	}))
-	mux.Handle("/n/{node}/{rest...}", guard.Require(proxyHandler))
-	mux.Handle("GET /api/nodes", guard.Require(http.HandlerFunc(
+	mux.Handle("GET "+console.PathSelect+"{node}", guard.Require(http.HandlerFunc(guard.Select)))
+	mux.Handle("GET "+console.PathNodeAPI, guard.Require(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			writeNodeList(w, r, nodeStore, registry, logger)
 		})))
+
+	// ── everything else belongs to the selected machine ──
+	//
+	// The node's application owns the origin root because its client addresses
+	// `/api/...` and its assets absolutely. Anything the control plane needs
+	// for itself lives under console.Prefix, out of that application's way.
+	mux.Handle("/", guard.Require(&proxy.Handler{
+		Registry:        registry,
+		Log:             logger,
+		Audit:           auditor,
+		AllowPrivileged: false,
+		SelectNode:      console.SelectedNode,
+		NoSelection:     http.HandlerFunc(noMachineSelected),
+	}))
 
 	server := &http.Server{
 		Addr:              cfg.Listen,
@@ -215,6 +221,20 @@ func serve(_ []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+// noMachineSelected answers a request that arrived before the browser picked
+// a machine.
+//
+// A navigation goes to the chooser; anything else gets a status, because
+// answering a fetch with the chooser's HTML would surface as a parse error
+// rather than as the actionable "pick a machine first".
+func noMachineSelected(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && strings.Contains(r.Header.Get("accept"), "text/html") {
+		http.Redirect(w, r, console.PathConsole, http.StatusSeeOther)
+		return
+	}
+	http.Error(w, "no machine selected", http.StatusServiceUnavailable)
 }
 
 // purgeSessions drops expired browser sessions hourly. Expiry is already

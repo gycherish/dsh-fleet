@@ -42,10 +42,12 @@ Because it has no authentication. dsh's own documentation is explicit:
 | Node telemetry (versions, plugin tree, agent counts) | ✅ |
 | Request forwarding, including streaming and approvals | ✅ |
 | Privileged-method gate with an audit trail | ✅ deny by default |
-| Console accounts and UI | ❌ |
-| Frontend asset pass-through | ❌ |
+| Console accounts, sessions, machine chooser | ✅ |
+| Frontend pass-through — the node's own UI, end to end | ✅ |
 
-With no user authentication yet, the control plane binds to loopback by default. **Do not expose it until accounts land.**
+Verified against a real `dsh web`: the browser loads that node's own frontend byte for byte, its assets and client plugin bundles resolve, `/api` calls answer, and both SSE downlinks stream.
+
+There is still no TLS and no rate limiting, so put a terminating proxy in front before exposing this anywhere. `DSHF_BIND` keeps it on loopback until you do.
 
 ## Quick start (Docker)
 
@@ -93,6 +95,10 @@ dsh web
 ```
 
 Without `DSH_FLEET_URL` the plugin stays inert, so installing it never changes how `dsh web` already behaves.
+
+The plugin serves `/api` from the in-process gateway and everything else from this node's own web server (`localWebUrl`, default `http://127.0.0.1:3080`). That is why the browser gets the node's real frontend — boot manifest and client plugin bundles included — rather than an approximation of it.
+
+Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time, and switching is a page load rather than an in-app gesture.
 
 > If you plan to drive this machine from a phone, pin its directory picker to browse mode — the native picker can only be clicked on that machine's own desktop. The plugin's config layer ships the one-line override with a comment explaining it.
 

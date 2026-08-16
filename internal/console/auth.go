@@ -14,6 +14,23 @@ import (
 	"github.com/gycherish/dsh-fleet/internal/users"
 )
 
+// Prefix reserves the control plane's own URLs.
+//
+// Everything outside it belongs to the selected node, because the dsh web
+// client addresses `/api/...` and its assets absolutely and therefore needs
+// the origin root. The prefix is deliberately unlikely to collide with any
+// route that application serves.
+const Prefix = "/_fleet"
+
+// Paths the console owns.
+const (
+	PathLogin   = Prefix + "/login"
+	PathLogout  = Prefix + "/logout"
+	PathConsole = Prefix + "/console"
+	PathSelect  = Prefix + "/select/"
+	PathNodeAPI = Prefix + "/nodes"
+)
+
 // SessionCookie is the browser session cookie name.
 const SessionCookie = "dshf_session"
 
@@ -72,7 +89,7 @@ func (g *Guard) Require(next http.Handler) http.Handler {
 			g.clearCookie(w, SessionCookie)
 		}
 		if isNavigation(r) {
-			target := "/login?next=" + url.QueryEscape(r.URL.RequestURI())
+			target := PathLogin + "?next=" + url.QueryEscape(r.URL.RequestURI())
 			http.Redirect(w, r, target, http.StatusSeeOther)
 			return
 		}
@@ -126,7 +143,7 @@ func (g *Guard) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	g.clearCookie(w, SessionCookie)
 	g.clearCookie(w, NodeCookie)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, PathLogin, http.StatusSeeOther)
 }
 
 // LoginPage renders the form, or skips it when a session is already valid.

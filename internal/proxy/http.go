@@ -47,19 +47,37 @@ type Auditor interface {
 	RecordDecision(nodeID, ns, path string, allowed bool, status int, reason string)
 }
 
-// Handler serves /n/{nodeId}/... by forwarding to that node.
+// Handler forwards a browser request to the node this browser selected.
+//
+// It serves the whole origin below the control plane's own reserved prefix,
+// because the dsh web client addresses `/api/...` and its assets as absolute
+// paths. Hosting a node under a path prefix would break every one of those
+// requests, so the node's application gets the root and the console moves out
+// of its way.
 type Handler struct {
 	Registry *uplink.Registry
 	Log      *slog.Logger
 	Audit    Auditor
+	// SelectNode resolves which node this request belongs to.
+	SelectNode func(*http.Request) string
+	// NoSelection handles a request that named no node, typically by sending
+	// the browser to the chooser.
+	NoSelection http.Handler
 	// AllowPrivileged opens the method set above. It exists so a single-user
 	// deployment can opt in deliberately; it must never default to true.
 	AllowPrivileged bool
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	nodeID := r.PathValue("node")
-	rest := "/" + strings.TrimPrefix(r.PathValue("rest"), "/")
+	nodeID := h.SelectNode(r)
+	if nodeID == "" {
+		h.NoSelection.ServeHTTP(w, r)
+		return
+	}
+	rest := r.URL.EscapedPath()
+	if rest == "" {
+		rest = "/"
+	}
 	if r.URL.RawQuery != "" {
 		rest += "?" + r.URL.RawQuery
 	}
@@ -88,11 +106,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	headers := map[string]string{}
-	if ct := r.Header.Get("content-type"); ct != "" {
-		headers["content-type"] = ct
-	}
-	if acc := r.Header.Get("accept"); acc != "" {
-		headers["accept"] = acc
+	// Only the headers the node's own server needs to answer correctly. The
+	// browser's cookies and authorization deliberately stay here: they belong
+	// to this control plane, and a node has no business seeing them.
+	for _, name := range []string{"content-type", "accept", "accept-language", "if-none-match", "range"} {
+		if value := r.Header.Get(name); value != "" {
+			headers[name] = value
+		}
 	}
 
 	textual := strings.HasPrefix(r.Header.Get("content-type"), "application/json")

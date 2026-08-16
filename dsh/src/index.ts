@@ -55,6 +55,15 @@ export interface Config {
   /** Largest response chunk this node will put on the wire, in bytes. */
   maxChunkBytes: number
   /**
+   * Origin of this node's own `dsh web` server. Asset requests are served
+   * from it rather than reimplemented here, so SPA fallback, the boot manifest
+   * injected into `index.html`, and `/plugins/<id>/client.js` all behave
+   * exactly as they do for a local browser.
+   *
+   * Change it when the surface binds a non-default port.
+   */
+  localWebUrl: string
+  /**
    * Absolute directories `fleet.file.*` may read. EMPTY DISABLES THE FAMILY.
    *
    * The default is empty on purpose: `ctx.fs` confines mutations, not reads, so
@@ -75,6 +84,7 @@ export const Config: z<Config> = z.object({
   reconnectBaseMs: z.natural().min(100).default(1_000),
   reconnectMaxMs: z.natural().min(1_000).default(30_000),
   maxChunkBytes: z.natural().min(4_096).default(262_144),
+  localWebUrl: z.string().default('http://127.0.0.1:3080'),
   fileRoots: z.array(z.string()).default([]),
   maxReadBytes: z.natural().min(1_024).default(1_048_576),
 })
@@ -115,6 +125,15 @@ function assertUsable(config: Config): void {
   if (config.reconnectMaxMs < config.reconnectBaseMs) {
     throw new Error('dsh-fleet-node: reconnectMaxMs must be at least reconnectBaseMs')
   }
+  let local: URL
+  try {
+    local = new URL(config.localWebUrl)
+  } catch {
+    throw new Error(`dsh-fleet-node: localWebUrl is not a valid URL: ${config.localWebUrl}`)
+  }
+  if (local.protocol !== 'http:' && local.protocol !== 'https:') {
+    throw new Error(`dsh-fleet-node: localWebUrl must be http or https, got ${local.protocol}`)
+  }
   for (const root of config.fileRoots) {
     if (root.trim().length === 0) throw new Error('dsh-fleet-node: fileRoots must not contain blank entries')
   }
@@ -138,6 +157,7 @@ export function apply(ctx: Context, config: Config): void {
       reconnectBaseMs: config.reconnectBaseMs,
       reconnectMaxMs: config.reconnectMaxMs,
       maxChunkBytes: config.maxChunkBytes,
+      localWebUrl: config.localWebUrl,
       fileAccess: { roots: config.fileRoots, maxReadBytes: config.maxReadBytes },
     })
     uplink.start()

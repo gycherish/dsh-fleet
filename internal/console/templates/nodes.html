@@ -68,7 +68,7 @@ code {
     <h1>Machines</h1>
     <span class="who">
       {{if .User}}{{.User}} ·{{end}}
-      <form method="post" action="/logout"><button type="submit">sign out</button></form>
+      <form method="post" action="/_fleet/logout"><button type="submit">sign out</button></form>
     </span>
   </header>
 
@@ -76,7 +76,7 @@ code {
   <ul>
     {{range .Nodes}}
     <li>
-      <a class="{{.Status}}" href="/n/{{.ID}}/">
+      <a class="{{.Status}}" href="/_fleet/select/{{.ID}}">
         <span class="top">
           <span class="dot" aria-hidden="true"></span>
           <span class="name">{{.Label}}</span>
