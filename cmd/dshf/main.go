@@ -173,6 +173,13 @@ func serve(_ []string) error {
 		Audit:           auditor,
 		AllowPrivileged: false,
 	}
+	// `{$}` matches only the bare root, so it does not swallow every unmatched
+	// path the way a plain "/" pattern would.
+	mux.Handle("GET /{$}", guard.Require(&console.NodesPage{
+		Nodes: nodeStore,
+		Live:  registry,
+		Log:   logger,
+	}))
 	mux.Handle("/n/{node}/{rest...}", guard.Require(proxyHandler))
 	mux.Handle("GET /api/nodes", guard.Require(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {

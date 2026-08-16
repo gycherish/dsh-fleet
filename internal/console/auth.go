@@ -61,7 +61,7 @@ func (g *Guard) Require(next http.Handler) http.Handler {
 		if err == nil {
 			user, err := g.Users.LookupSession(r.Context(), cookie.Value)
 			if err == nil {
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)), )
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)))
 				return
 			}
 			if !errors.Is(err, users.ErrNoSession) {
