@@ -1,0 +1,26 @@
+# clice language-server cache
+.clice/
+
+# Go
+/dshf
+/dshf.exe
+/out/
+*.test
+
+# Node / the dsh plugin
+node_modules/
+dsh/lib/
+*.tsbuildinfo
+
+# pixi environment and the local development database
+.pixi/
+.devdata/
+
+# Deployment secrets
+deploy/.env
+.env
+.env.local
+
+# Editors
+.DS_Store
+*.swp

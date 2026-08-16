@@ -1,0 +1,69 @@
+[workspace]
+name = "dsh-fleet"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
+
+# Node is pinned to the same range the DeepSeek Harness workspace uses. The
+# node plugin is loaded into the dsh process, so building it against a
+# different major than the one that will run it is a real risk, not a
+# formality.
+#
+# PostgreSQL is here so the development loop needs no container. Docker remains
+# the supported DEPLOYMENT, and deploy/docker-compose.yml is still the
+# reference for it; this is only about not making `go run` wait on a daemon.
+#
+# Go is deliberately NOT managed here. It is already installed, and pinning a
+# second copy through conda would leave two toolchains disagreeing about which
+# one built the binary under test.
+[dependencies]
+nodejs = ">=26.6.0,<26.7"
+pnpm = ">=11.21.0,<12"
+postgresql = ">=18,<19"
+
+# ── the dsh node plugin ──────────────────────────────────────────────────────
+
+[tasks]
+install = { cmd = "pnpm install", cwd = "dsh" }
+build = { cmd = "pnpm run build", cwd = "dsh", depends-on = ["install"] }
+typecheck = { cmd = "pnpm exec tsc -p tsconfig.json --noEmit", cwd = "dsh", depends-on = ["install"] }
+
+# ── local PostgreSQL for development ─────────────────────────────────────────
+#
+# Port 5433, not 5432, so this never collides with a system PostgreSQL. Trust
+# auth is fine here and only here: the cluster listens on loopback and holds
+# nothing but development rows.
+
+# These are deliberately independent, with no `depends-on` and no `outputs`.
+# `outputs` makes pixi fingerprint the project tree, which walks
+# dsh/node_modules and dies on pnpm's nested symlinks; and initdb is not
+# idempotent, so chaining it ahead of every start turns a second `pg-start`
+# into an error. Run them in order once, then only pg-start/pg-stop.
+
+[tasks.pg-init]
+cmd = "initdb -D .devdata/pg -U dshfleet --auth=trust --encoding=UTF8"
+description = "Create the development cluster (run once)."
+
+# The redirection is load-bearing on Windows: the postgres child inherits
+# pg_ctl's stdout, so leaving it attached to the task runner's pipe means the
+# pipe never closes and `pixi run pg-start` hangs forever even though the
+# server came up fine. Sending it to a file breaks the inheritance.
+[tasks.pg-start]
+cmd = "pg_ctl -D .devdata/pg -l .devdata/pg.log -o \"-p 5433\" -w start > .devdata/pg-ctl.log 2>&1"
+description = "Start the development cluster on port 5433."
+
+[tasks.pg-stop]
+cmd = "pg_ctl -D .devdata/pg -m fast stop"
+description = "Stop the development cluster."
+
+[tasks.pg-create]
+cmd = "createdb -h 127.0.0.1 -p 5433 -U dshfleet dshfleet"
+description = "Create the dshfleet database (run once, after pg-start)."
+
+[tasks.pg-psql]
+cmd = "psql -h 127.0.0.1 -p 5433 -U dshfleet dshfleet"
+description = "Open a psql shell against the development database."
+
+# First-time setup, in this order:
+#   pixi run pg-init && pixi run pg-start && pixi run pg-create
+# Afterwards only pg-start / pg-stop are needed.

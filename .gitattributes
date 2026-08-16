@@ -1,0 +1,10 @@
+# The control plane is built and run on Linux even when it is developed on
+# Windows, so line endings are normalised to LF in the repository and in the
+# working copy. A CRLF that reaches a container is a shell script that fails
+# with a message naming a character nobody can see.
+* text=auto eol=lf
+
+# Lockfiles are generated; keep them out of diffs and merge conflicts.
+pixi.lock        linguist-generated=true -diff
+dsh/pnpm-lock.yaml linguist-generated=true -diff
+go.sum           linguist-generated=true -diff

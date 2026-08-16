@@ -1,0 +1,65 @@
+{
+  "name": "@dsh-fleet/node",
+  "version": "0.1.0",
+  "description": "dsh-fleet node plugin: dials out to a dsh-fleet control plane and serves this machine's /api surface over it",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh-fleet"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-host-apiproxy": "*",
+    "@deepseek-ai/dsh-fs": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-fs": {
+      "optional": true
+    }
+  },
+  "//devDependencies": [
+    "Built against a LOCAL harness checkout, not npm: the published",
+    "@deepseek-ai set is stale (host-apiproxy resolves to 0.0.1-rc.1, whose own",
+    "dependency @deepseek-ai/dsh-user-interaction is not in the registry at",
+    "all). These links assume deepseek-harness is checked out beside this",
+    "repository and has been built with `pnpm run build`.",
+    "Runtime resolution is unaffected: a profile gets these packages from the",
+    "dsh installation's own module farm, which is why they are peers."
+  ],
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-host-apiproxy": "link:../../deepseek-harness/packages/host/apiproxy",
+    "@deepseek-ai/dsh-fs": "link:../../deepseek-harness/packages/fs/fs",
+    "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",
+    "@types/node": ">=22.15.0",
+    "typescript": "^5.7.0"
+  }
+}

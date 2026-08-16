@@ -1,0 +1,65 @@
+# dsh-fleet — the supported deployment.
+#
+#   cp .env.example .env      # then edit the two passwords
+#   docker compose up -d
+#
+# The control plane terminates plain HTTP on 8080. Put a TLS-terminating proxy
+# in front of it before exposing it: nodes and browsers both send bearer
+# credentials, and the uplink is a long-lived WebSocket.
+
+name: dsh-fleet
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dshfleet}
+      POSTGRES_USER: ${POSTGRES_USER:-dshfleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # dshf runs migrations at boot, so it must not start against a database
+      # that is still initialising.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dshfleet} -d ${POSTGRES_DB:-dshfleet}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    # No published port: only dshf needs the database. Add one temporarily if
+    # you want to inspect it with psql from the host.
+    networks: [internal]
+
+  dshf:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: ${DSHF_VERSION:-dev}
+    image: ghcr.io/dsh-fleet/dshf:${DSHF_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSHF_DATABASE_URL: postgres://${POSTGRES_USER:-dshfleet}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dshfleet}?sslmode=disable
+      DSHF_LISTEN: ":8080"
+      # Absolute base URL browsers reach. Used for cookie scope and for the
+      # uplink URL printed by `dshf node add`.
+      DSHF_PUBLIC_URL: ${DSHF_PUBLIC_URL:-http://localhost:8080}
+      # Bootstrap admin, created once on an empty users table.
+      DSHF_ADMIN_USER: ${DSHF_ADMIN_USER:-admin}
+      DSHF_ADMIN_PASSWORD: ${DSHF_ADMIN_PASSWORD:?set DSHF_ADMIN_PASSWORD in .env}
+      DSHF_LOG_LEVEL: ${DSHF_LOG_LEVEL:-info}
+    ports:
+      - "${DSHF_BIND:-127.0.0.1}:8080:8080"
+    networks: [internal, edge]
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+    internal: true
+  edge:
