@@ -76,6 +76,19 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// LoadDatabaseURL reads only the connection string.
+//
+// The operator subcommands touch the database but serve no traffic, so
+// demanding a public URL and an admin password from them would make `dshf node
+// add` fail for reasons that have nothing to do with adding a node.
+func LoadDatabaseURL() (string, error) {
+	dsn := os.Getenv("DSHF_DATABASE_URL")
+	if strings.TrimSpace(dsn) == "" {
+		return "", fmt.Errorf("%w: DSHF_DATABASE_URL", ErrMissing)
+	}
+	return dsn, nil
+}
+
 func envOr(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok && value != "" {
 		return value

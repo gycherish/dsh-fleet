@@ -31,6 +31,23 @@ Each machine runs an ordinary `dsh web` plus one small plugin that dials **out**
 
 Pre-alpha. The protocol in [`api/envelope.md`](api/envelope.md) is versioned but not yet stable.
 
+## What works today
+
+The uplink is live: a node authenticates, is tracked, reports telemetry, and
+serves proxied requests. What is missing is the console itself — there is no
+user authentication and no UI, so `DSHF_BIND` keeps the browser plane on
+loopback and must stay there until that lands.
+
+| | |
+|---|---|
+| Node registration, one-time tokens, revocation | ✅ `dshf node add/ls/revoke` |
+| Uplink handshake, auth, duplicate refusal, heartbeat | ✅ |
+| Telemetry ingest (history + denormalised latest) | ✅ |
+| Request proxy with streaming and per-chunk flush | ✅ |
+| Privilege gate over dsh's loopback-pinned methods | ✅ audited, deny by default |
+| Console user accounts and sessions | ❌ |
+| Frontend asset pass-through | ❌ |
+
 ## Development (local, no container)
 
 pixi provides Node, pnpm, and PostgreSQL, so the inner loop never waits on a
