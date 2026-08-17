@@ -2,27 +2,23 @@
 #
 # Installing this package into a profile (`dsh plugin --profile web add …`)
 # activates this patch automatically, because the manifest declares
-# `dsh.bundle`. The row stays INERT until the deployment supplies a control
-# plane URL, so a plain install never changes how `dsh web` behaves.
+# `dsh.bundle`. The row is ENABLED but unconfigured, so a plain install adds a
+# plugin that connects to nothing and changes nothing about how `dsh web`
+# behaves.
 #
-# Every value comes from the environment rather than being written here: a
-# node token is a credential, and this file is checked into the profile
-# directory alongside ordinary configuration.
+# Enabled rather than disabled on purpose: a disabled row does not appear in
+# Settings → Plugins, and that page is the only place someone can configure it.
+# A plugin that hides until it is configured cannot be configured.
 #
-# To override any of it, restate the whole `config` in the profile's own
-# cordis.patch.yml — a patch replaces the targeted row's complete config
-# rather than merging into it.
+# No values are written here either, and in particular no `!!js process.env`
+# ones. A deferred expression is re-read on every load, so it would silently
+# win against whatever was typed into the settings form. The plugin reads those
+# same variables itself as a fallback, which keeps a container working while
+# leaving the form authoritative.
 
 - insert:
     - id: fleet-node
       name: '@dsh-fleet/node'
-      # No URL configured means this deployment is not part of a fleet.
-      disabled: !!js !process.env.DSH_FLEET_URL
-      config:
-        url: !!js process.env.DSH_FLEET_URL ?? ''
-        nodeId: !!js process.env.DSH_FLEET_NODE_ID ?? ''
-        token: !!js process.env.DSH_FLEET_TOKEN ?? ''
-        label: !!js process.env.DSH_FLEET_LABEL
 
 # A remote browser cannot answer a native directory chooser: it opens on THIS
 # machine's desktop, and `host.pickDirectory` is a privileged method the fleet

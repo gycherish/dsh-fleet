@@ -72,13 +72,22 @@ export interface NodeDescriptor {
   cwd: string
 }
 
-/** First frame on every connection: identity, capabilities, and the node token. */
+/** First frame on every connection: identity, capabilities, and a credential. */
 export interface HelloFrame {
   t: 'hello'
   protocol: number
   nodeId: string
   /**
-   * Node token. Carried in-band rather than as an `Authorization` header
+   * Account this token belongs to, when the credential is a person's.
+   *
+   * Present selects self-enrolment: `token` is that account's `ut_` token and
+   * the control plane registers `nodeId` to them on first connection. Absent
+   * selects the machine's own `nt_` token from `dshf node add`, which needs the
+   * machine to have been registered there first.
+   */
+  username?: string
+  /**
+   * The credential. Carried in-band rather than as an `Authorization` header
    * because the WHATWG `WebSocket` constructor cannot set request headers, and
    * a token in the URL would reach proxy access logs.
    */

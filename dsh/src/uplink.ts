@@ -31,6 +31,8 @@ import { buildSnapshot, dshVersion } from './telemetry.ts'
 export interface UplinkOptions {
   url: string
   nodeId: string
+  /** Account the token belongs to, when it is a person's rather than this machine's. */
+  username: string | undefined
   token: string
   label: string | undefined
   pluginVersion: string
@@ -170,6 +172,7 @@ export class Uplink {
         t: 'hello',
         protocol: PROTOCOL_VERSION,
         nodeId: this.options.nodeId,
+        ...(this.options.username === undefined ? {} : { username: this.options.username }),
         token: this.options.token,
         node: {
           label: this.options.label,

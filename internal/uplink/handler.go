@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
@@ -30,16 +31,33 @@ type Authenticator interface {
 	RecordHello(ctx context.Context, nodeID string, d envelope.NodeDescriptor, caps []string) error
 }
 
+// Enroller authenticates a person's token and claims a machine id for them.
+//
+// Split from Authenticator because the two answer different questions: one asks
+// "is this the machine it says it is", the other "may this person register a
+// machine under that name".
+type Enroller interface {
+	// AuthenticateToken resolves the account holding this token.
+	AuthenticateToken(ctx context.Context, username, token string) (ownerID uuid.UUID, err error)
+	// Claim registers the machine to that account, or confirms it already is.
+	Claim(ctx context.Context, nodeID string, ownerID uuid.UUID, label string) error
+}
+
 // Handler serves the node uplink endpoint.
 type Handler struct {
 	Registry *Registry
 	Auth     Authenticator
-	Sink     TelemetrySink
-	Log      *slog.Logger
+	// Enrol handles a hello that names a user. Nil refuses those, which is what
+	// a deployment that wants machine tokens only should do.
+	Enrol Enroller
+	Sink  TelemetrySink
+	Log   *slog.Logger
 	// NotFound and Revoked are reported with distinct close codes so an
 	// operator reading a node's log can tell a wrong token from a deleted node.
 	NotFound error
 	Revoked  error
+	// Foreign reports a machine id already held by another account.
+	Foreign error
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -69,10 +87,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authCtx, cancelAuth := context.WithTimeout(ctx, 10*time.Second)
-	err = h.Auth.Authenticate(authCtx, hello.NodeID, hello.Token)
+	if hello.Username == "" {
+		err = h.Auth.Authenticate(authCtx, hello.NodeID, hello.Token)
+	} else {
+		err = h.enrol(authCtx, hello)
+	}
 	cancelAuth()
 	switch {
 	case err == nil:
+	case h.Foreign != nil && errors.Is(err, h.Foreign):
+		// Worth its own message: the credential was good and the name was taken,
+		// which is a different fix from "your token is wrong".
+		h.Log.Warn("uplink: machine id belongs to another account",
+			"node", hello.NodeID, "user", hello.Username)
+		_ = ws.Close(websocket.StatusCode(envelope.CloseUnknownNode), "that machine name belongs to another account")
+		return
 	case h.Revoked != nil && errors.Is(err, h.Revoked):
 		_ = ws.Close(websocket.StatusCode(envelope.CloseBadToken), "token revoked")
 		return
@@ -152,6 +181,18 @@ func readHello(ctx context.Context, ws *websocket.Conn) (*envelope.Hello, error)
 		return nil, errors.New("uplink: hello must carry nodeId and token")
 	}
 	return &hello, nil
+}
+
+// enrol authenticates a person's token and claims the machine name for them.
+func (h *Handler) enrol(ctx context.Context, hello *envelope.Hello) error {
+	if h.Enrol == nil {
+		return errors.New("uplink: this control plane does not accept user tokens")
+	}
+	ownerID, err := h.Enrol.AuthenticateToken(ctx, hello.Username, hello.Token)
+	if err != nil {
+		return err
+	}
+	return h.Enrol.Claim(ctx, hello.NodeID, ownerID, hello.Node.Label)
 }
 
 func closeReason(err error) string {

@@ -44,13 +44,31 @@ export const name = 'dsh-fleet-node'
  */
 export const inject = ['webRuntime']
 
-/** Plugin configuration. */
+/**
+ * Plugin configuration.
+ *
+ * The three connection fields are optional so this plugin can be installed and
+ * then configured, rather than the other way round. Unconfigured it loads,
+ * appears in Settings → Plugins, and connects to nothing; fill them in and the
+ * loader reloads the plugin, which brings the uplink up. Each also falls back
+ * to an environment variable, which is how a container configures it with no
+ * UI at all.
+ */
 export interface Config {
-  /** Control-plane uplink endpoint, `ws://` or `wss://`. */
+  /** Control-plane uplink endpoint, `ws://` or `wss://`. Empty stays offline. */
   url: string
-  /** This node's registered id. */
+  /** This machine's name in the console. */
   nodeId: string
-  /** Node token issued by `dshf node add`. */
+  /**
+   * Console account this token belongs to.
+   *
+   * Set it and the machine enrols itself under that account on first
+   * connection, with a token that person minted for themselves — no step on the
+   * control plane. Leave it empty and `token` is this machine's own, from
+   * `dshf node add`, which is the shape a container wants.
+   */
+  username?: string
+  /** User token (`ut_`) with a username, or machine token (`nt_`) without one. */
   token: string
   /** Operator-facing display name; defaults to the hostname at the console. */
   label?: string
@@ -81,19 +99,85 @@ export interface Config {
   maxReadBytes: number
 }
 
-/** Runtime schema; Schemastery validates and fills defaults before `apply`. */
+/**
+ * Runtime schema; Schemastery validates and fills defaults before `apply`.
+ *
+ * Descriptions are not decoration here: this schema is the plugin's settings
+ * form, and it is the only instructions anyone configuring a node from the UI
+ * will see.
+ */
 export const Config: z<Config> = z.object({
-  url: z.string().required(),
-  nodeId: z.string().required(),
-  token: z.string().required(),
-  label: z.string(),
-  reconnectBaseMs: z.natural().min(100).default(1_000),
-  reconnectMaxMs: z.natural().min(1_000).default(30_000),
-  maxChunkBytes: z.natural().min(4_096).default(262_144),
-  localWebUrl: z.string().default('http://127.0.0.1:3080'),
-  fileRoots: z.array(z.string()).default([]),
-  maxReadBytes: z.natural().min(1_024).default(1_048_576),
+  url: z.string()
+    .description('Control-plane uplink, e.g. wss://fleet.example.com/uplink. Leave empty to stay offline.')
+    .default(''),
+  nodeId: z.string()
+    .description('This machine\'s name in the console, e.g. laptop. Any name you have not used yet.')
+    .default(''),
+  username: z.string()
+    .description('Your console account. With it the machine enrols itself; leave empty to use a machine token from `dshf node add`.')
+    .default(''),
+  token: z.string().role('secret')
+    .description('Your token from the console (ut_…), or the machine token `dshf node add` printed (nt_…).')
+    .default(''),
+  label: z.string()
+    .description('Display name in the console. Defaults to this machine\'s id.'),
+  reconnectBaseMs: z.natural().min(100)
+    .description('Backoff floor between reconnect attempts, in milliseconds.')
+    .default(1_000),
+  reconnectMaxMs: z.natural().min(1_000)
+    .description('Backoff ceiling between reconnect attempts, in milliseconds.')
+    .default(30_000),
+  maxChunkBytes: z.natural().min(4_096)
+    .description('Largest response chunk put on the wire, in bytes.')
+    .default(262_144),
+  localWebUrl: z.string()
+    .description('This machine\'s own dsh web origin. Change it only if the surface binds a non-default port.')
+    .default('http://127.0.0.1:3080'),
+  fileRoots: z.array(z.string())
+    .description('Absolute directories the console may browse. EMPTY DISABLES remote file access, which is the safe default.')
+    .default([]),
+  maxReadBytes: z.natural().min(1_024)
+    .description('Cap on one remote file read, in bytes.')
+    .default(1_048_576),
 })
+
+/** One connection setting, from the config or the environment. */
+function setting(value: string | undefined, envVar: string): string {
+  const configured = (value ?? '').trim()
+  if (configured !== '') return configured
+  return (process.env[envVar] ?? '').trim()
+}
+
+/** What the uplink needs to exist, resolved across both sources. */
+interface Connection {
+  url: string
+  nodeId: string
+  token: string
+  /** Empty when the token is this machine's own. */
+  username: string
+}
+
+/**
+ * Resolve the connection, preferring configuration over the environment.
+ *
+ * Two sources rather than one because they serve different people: a container
+ * sets variables and never opens a UI, and a person on a laptop wants a form.
+ * Configuration wins so that editing the form is never silently overridden by
+ * a variable someone exported months ago.
+ *
+ * @returns the connection, or undefined when it is not configured at all.
+ */
+function connection(config: Config): Connection | undefined {
+  const resolved = {
+    url: setting(config.url, 'DSH_FLEET_URL'),
+    nodeId: setting(config.nodeId, 'DSH_FLEET_NODE_ID'),
+    token: setting(config.token, 'DSH_FLEET_TOKEN'),
+    // Optional: its presence chooses self-enrolment over a machine token.
+    username: setting(config.username, 'DSH_FLEET_USERNAME'),
+  }
+  const required: (keyof Connection)[] = ['url', 'nodeId', 'token']
+  return required.every(key => resolved[key] !== '') ? resolved : undefined
+}
 
 /**
  * Read this package's own version for the handshake descriptor.
@@ -126,7 +210,7 @@ function assertUsable(config: Config): void {
   }
   if (config.nodeId.trim().length === 0) throw new Error('dsh-fleet-node: nodeId must not be blank')
   if (config.token.trim().length === 0) {
-    throw new Error('dsh-fleet-node: token must not be blank (set DSH_FLEET_TOKEN, or mint one with `dshf node add`)')
+    throw new Error("dsh-fleet-node: token must not be blank")
   }
   if (config.reconnectMaxMs < config.reconnectBaseMs) {
     throw new Error('dsh-fleet-node: reconnectMaxMs must be at least reconnectBaseMs')
@@ -178,14 +262,28 @@ function warnOnUnreachableDirectoryPicker(ctx: Context): void {
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config): void {
-  assertUsable(config)
+  const settings = connection(config)
+  if (settings === undefined) {
+    // Loaded but idle, on purpose. Refusing to load would keep this plugin out
+    // of Settings → Plugins, which is the one place someone can configure it —
+    // an installed plugin that hides until it is configured cannot be.
+    ctx.logger('fleet-node').info(
+      'not connected: set url, nodeId and token in Settings → Plugins '
+      + '(or DSH_FLEET_URL / DSH_FLEET_NODE_ID / DSH_FLEET_TOKEN). '
+      + 'Mint a token on the control plane with `dshf node add <id>`.',
+    )
+    return
+  }
+
+  assertUsable({ ...config, ...settings })
   warnOnUnreachableDirectoryPicker(ctx)
 
   ctx.effect(() => {
     const uplink = new Uplink(ctx, {
-      url: config.url,
-      nodeId: config.nodeId,
-      token: config.token,
+      url: settings.url,
+      nodeId: settings.nodeId,
+      token: settings.token,
+      username: settings.username === '' ? undefined : settings.username,
       label: config.label,
       pluginVersion: pluginVersion(),
       reconnectBaseMs: config.reconnectBaseMs,

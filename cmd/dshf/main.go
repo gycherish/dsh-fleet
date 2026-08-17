@@ -21,6 +21,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gycherish/dsh-fleet/internal/audit"
@@ -85,6 +86,9 @@ Usage:
   dshf node revoke <id>            withdraw a machine's token
   dshf user add <name> [--admin]   create a console account
   dshf user ls                     list console accounts
+  dshf user passwd <name>          reset an account's password
+  dshf user token add <name>       mint a token that machine can enrol themselves with
+  dshf user token ls|revoke        list or withdraw those tokens
   dshf cert [--dir D] [host...]    mint a self-signed certificate for HTTPS
   dshf version                     print the build version
 
@@ -125,7 +129,7 @@ func serve(_ []string) error {
 	}
 
 	nodeStore := nodes.New(pool)
-	userStore := users.New(pool)
+	userStore := users.New(pool, logger)
 	registry := uplink.NewRegistry()
 	auditor, stopAudit := audit.New(pool, logger)
 	defer stopAudit()
@@ -166,10 +170,15 @@ func serve(_ []string) error {
 	mux.Handle("GET /uplink", &uplink.Handler{
 		Registry: registry,
 		Auth:     nodeStore,
+		// Self-enrolment spans both stores — a token belongs to a person, the
+		// machine name to the fleet — so it is composed here rather than making
+		// either store know about the other.
+		Enrol:    &enroller{users: userStore, nodes: nodeStore},
 		Sink:     nodeStore,
 		Log:      logger,
 		NotFound: nodes.ErrNotFound,
 		Revoked:  nodes.ErrRevoked,
+		Foreign:  nodes.ErrForeign,
 	})
 
 	// ── the console, behind the session guard ──
@@ -301,6 +310,26 @@ func warnIfInsecureOrigin(cfg *config.Config, log *slog.Logger) {
 // A navigation goes to the chooser; anything else gets a status, because
 // answering a fetch with the chooser's HTML would surface as a parse error
 // rather than as the actionable "pick a machine first".
+// enroller joins the two stores self-enrolment needs.
+type enroller struct {
+	users *users.Store
+	nodes *nodes.Store
+}
+
+func (e *enroller) AuthenticateToken(ctx context.Context, username, token string) (uuid.UUID, error) {
+	user, err := e.users.AuthenticateToken(ctx, username, token)
+	if err != nil {
+		// Mapped onto the uplink's "unknown node or bad token" so a caller
+		// guessing usernames learns nothing from the difference.
+		return uuid.Nil, fmt.Errorf("%w: %w", nodes.ErrNotFound, err)
+	}
+	return user.ID, nil
+}
+
+func (e *enroller) Claim(ctx context.Context, nodeID string, ownerID uuid.UUID, label string) error {
+	return e.nodes.EnsureOwned(ctx, nodeID, ownerID, label)
+}
+
 func noMachineSelected(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && strings.Contains(r.Header.Get("accept"), "text/html") {
 		http.Redirect(w, r, console.PathConsole, http.StatusSeeOther)
@@ -418,7 +447,7 @@ func userCmd(args []string) error {
 	}
 	defer cancel()
 	defer pool.Close()
-	s := users.New(pool)
+	s := users.New(pool, newLogger("warn"))
 
 	switch args[0] {
 	case "add":
@@ -447,14 +476,128 @@ func userCmd(args []string) error {
 			return err
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "USERNAME\tADMIN\tCREATED")
+		fmt.Fprintln(tw, "USERNAME\tADMIN\tSTATUS\tCREATED")
 		for _, u := range list {
-			fmt.Fprintf(tw, "%s\t%t\t%s\n", u.Username, u.IsAdmin, u.CreatedAt.Local().Format(time.RFC3339))
+			status := "active"
+			if u.DisabledAt != nil {
+				status = "disabled"
+			}
+			fmt.Fprintf(tw, "%s\t%t\t%s\t%s\n",
+				u.Username, u.IsAdmin, status, u.CreatedAt.Local().Format(time.RFC3339))
 		}
 		return tw.Flush()
 
+	case "passwd":
+		name, err := parseOneArg(flag.NewFlagSet("user passwd", flag.ContinueOnError),
+			args[1:], "dshf user passwd <name>")
+		if err != nil {
+			return err
+		}
+		password := os.Getenv("DSHF_NEW_PASSWORD")
+		if strings.TrimSpace(password) == "" {
+			return errors.New("set DSHF_NEW_PASSWORD to the new password")
+		}
+		u, err := s.Find(ctx, name)
+		if err != nil {
+			return err
+		}
+		// No current password: this is the reset path, for the account nobody can
+		// sign into any more.
+		if err := s.SetPassword(ctx, u.ID, "", password); err != nil {
+			return err
+		}
+		fmt.Printf("reset the password for %q; its other sessions were signed out\n", u.Username)
+		return nil
+
+	case "token":
+		if len(args) < 2 {
+			return errors.New("usage: dshf user token <add|ls|revoke> <name> [...]")
+		}
+		return userTokenCmd(ctx, s, args[1:])
+
 	default:
 		return fmt.Errorf("unknown user subcommand %q", args[0])
+	}
+}
+
+// userTokenCmd manages the tokens a person uses to enrol their own machines.
+func userTokenCmd(ctx context.Context, s *users.Store, args []string) error {
+	switch args[0] {
+	case "add":
+		fs := flag.NewFlagSet("user token add", flag.ContinueOnError)
+		label := fs.String("name", "", "what this token is for, e.g. laptop")
+		name, err := parseOneArg(fs, args[1:], "dshf user token add <user> --name WHAT")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(*label) == "" {
+			return errors.New("give the token a name with --name, so it can be recognised before it is revoked")
+		}
+		u, err := s.Find(ctx, name)
+		if err != nil {
+			return err
+		}
+		token, err := s.MintToken(ctx, u.ID, *label)
+		if err != nil {
+			return err
+		}
+		// Printed once: only the hash is stored.
+		fmt.Printf("minted token %q for %q\n\n", *label, u.Username)
+		fmt.Printf("  DSH_FLEET_USERNAME=%s\n", u.Username)
+		fmt.Printf("  DSH_FLEET_TOKEN=%s\n\n", token)
+		fmt.Println("Set these on the machine with DSH_FLEET_URL and a DSH_FLEET_NODE_ID of your choosing;")
+		fmt.Println("it registers itself on first connection. This token is shown once.")
+		return nil
+
+	case "ls":
+		name, err := parseOneArg(flag.NewFlagSet("user token ls", flag.ContinueOnError),
+			args[1:], "dshf user token ls <user>")
+		if err != nil {
+			return err
+		}
+		u, err := s.Find(ctx, name)
+		if err != nil {
+			return err
+		}
+		list, err := s.ListTokens(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tLAST USED")
+		for _, t := range list {
+			status := "active"
+			if t.RevokedAt != nil {
+				status = "revoked"
+			}
+			used := "never"
+			if t.LastUsedAt != nil {
+				used = t.LastUsedAt.Local().Format(time.RFC3339)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.ID, t.Name, status, used)
+		}
+		return tw.Flush()
+
+	case "revoke":
+		if len(args) != 3 {
+			return errors.New("usage: dshf user token revoke <user> <token-id>")
+		}
+		u, err := s.Find(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		id, err := uuid.Parse(args[2])
+		if err != nil {
+			return fmt.Errorf("%q is not a token id; find it with `dshf user token ls`", args[2])
+		}
+		if err := s.RevokeToken(ctx, u.ID, id); err != nil {
+			return err
+		}
+		fmt.Println("revoked; every machine enrolled with it is refused at its next reconnect")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown token subcommand %q", args[0])
 	}
 }
 

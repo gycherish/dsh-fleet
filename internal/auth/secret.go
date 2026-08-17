@@ -22,6 +22,11 @@ import (
 // secret scanners have something to match.
 const TokenPrefix = "nt_"
 
+// UserTokenPrefix marks a token a person holds, as distinct from one issued to
+// a single machine. Two prefixes rather than one because they are revoked at
+// different scopes: cutting `ut_` disconnects every machine enrolled with it.
+const UserTokenPrefix = "ut_"
+
 const (
 	// Tuned for an interactive login on a small VPS: ~64 MiB and one pass is
 	// the argon2id RFC 9106 second-recommended profile.
@@ -41,12 +46,17 @@ var ErrUnsupportedHash = errors.New("auth: unsupported hash algorithm or version
 //
 // The plaintext is returned exactly once, to be printed by `dshf node add`;
 // only its hash reaches the database.
-func NewNodeToken() (string, error) {
+func NewNodeToken() (string, error) { return mint(TokenPrefix) }
+
+// NewUserToken mints one user token, shown once when a person creates it.
+func NewUserToken() (string, error) { return mint(UserTokenPrefix) }
+
+func mint(prefix string) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("auth: cannot read entropy: %w", err)
 	}
-	return TokenPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 // Hash derives an encoded argon2id hash of secret.

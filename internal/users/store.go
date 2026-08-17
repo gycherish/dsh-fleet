@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -37,19 +38,38 @@ var ErrNoSession = errors.New("users: no valid session")
 // ErrExists reports a duplicate username.
 var ErrExists = errors.New("users: username is already taken")
 
+// ErrNotFound reports an account that does not exist.
+var ErrNotFound = errors.New("users: no such account")
+
+// MinPasswordLength is the shortest password this control plane accepts.
+//
+// A length floor and nothing else: composition rules push people toward
+// predictable substitutions, and this console has no password-strength meter to
+// pretend otherwise with.
+const MinPasswordLength = 10
+
+// ErrWeakPassword reports a password under MinPasswordLength.
+var ErrWeakPassword = fmt.Errorf("users: password must be at least %d characters", MinPasswordLength)
+
 // User is one console account.
 type User struct {
 	ID        uuid.UUID
 	Username  string
 	IsAdmin   bool
 	CreatedAt time.Time
+	// DisabledAt withdraws access without deleting the row, so the machines and
+	// audit trail a person left behind keep their owner.
+	DisabledAt *time.Time
 }
 
-// Store is the users and user_sessions tables.
-type Store struct{ pool *pgxpool.Pool }
+// Store is the users, user_sessions and user_tokens tables.
+type Store struct {
+	pool *pgxpool.Pool
+	log  *slog.Logger
+}
 
 // New returns a Store over pool.
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool, log *slog.Logger) *Store { return &Store{pool: pool, log: log} }
 
 // EnsureBootstrapAdmin creates the first account when none exists.
 //
@@ -209,7 +229,7 @@ func (s *Store) PurgeExpiredSessions(ctx context.Context) (int64, error) {
 
 // List returns every account in creation order.
 func (s *Store) List(ctx context.Context) ([]User, error) {
-	const q = `SELECT id, username, is_admin, created_at FROM users ORDER BY created_at`
+	const q = `SELECT id, username, is_admin, created_at, disabled_at FROM users ORDER BY created_at`
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("users: cannot list: %w", err)
@@ -218,12 +238,126 @@ func (s *Store) List(ctx context.Context) ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.IsAdmin, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.DisabledAt); err != nil {
 			return nil, fmt.Errorf("users: cannot scan row: %w", err)
 		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// SetPassword replaces one account's password.
+//
+// `current` is verified for a self-service change and empty for an admin reset.
+// The distinction matters: someone who walked away from an unlocked browser
+// should not have their password changed by whoever sat down next, while an
+// admin resetting a forgotten one has no plaintext to verify against.
+func (s *Store) SetPassword(ctx context.Context, userID uuid.UUID, current, next string) error {
+	if len(next) < MinPasswordLength {
+		return ErrWeakPassword
+	}
+	if current != "" {
+		const read = `SELECT password_hash FROM users WHERE id = $1`
+		var stored string
+		if err := s.pool.QueryRow(ctx, read, userID).Scan(&stored); err != nil {
+			return fmt.Errorf("users: cannot read the account: %w", err)
+		}
+		ok, err := auth.Verify(current, stored)
+		if err != nil {
+			return fmt.Errorf("users: cannot verify the current password: %w", err)
+		}
+		if !ok {
+			return ErrBadCredentials
+		}
+	}
+
+	hash, err := auth.Hash(next)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("users: cannot begin the password change: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, hash); err != nil {
+		return fmt.Errorf("users: cannot store the new password: %w", err)
+	}
+	// Every other browser holding a session for this account loses it. A
+	// password change is what someone does when they think a session is not
+	// theirs any more, so leaving the old ones alive would defeat the point.
+	if _, err := tx.Exec(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("users: cannot clear old sessions: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// SetAdmin grants or withdraws the admin flag.
+func (s *Store) SetAdmin(ctx context.Context, userID uuid.UUID, admin bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET is_admin = $2 WHERE id = $1`, userID, admin)
+	if err != nil {
+		return fmt.Errorf("users: cannot change the admin flag: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetDisabled withdraws or restores access without deleting the account.
+//
+// Sessions go with it, so disabling takes effect on the next request rather
+// than whenever the browser next signs in.
+func (s *Store) SetDisabled(ctx context.Context, userID uuid.UUID, disabled bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("users: cannot begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const q = `UPDATE users SET disabled_at = CASE WHEN $2 THEN now() ELSE NULL END WHERE id = $1`
+	tag, err := tx.Exec(ctx, q, userID, disabled)
+	if err != nil {
+		return fmt.Errorf("users: cannot change the disabled flag: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	if disabled {
+		if _, err := tx.Exec(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("users: cannot clear sessions: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// Delete removes an account outright.
+//
+// Its tokens go with it by cascade, and any machine it enrolled keeps working
+// until its next handshake, when the token it presents no longer resolves.
+// Machines are not deleted: they are hardware, and the audit trail that
+// mentions them outlives whoever registered them.
+func (s *Store) Delete(ctx context.Context, userID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("users: cannot delete the account: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CountAdmins reports how many enabled admins remain, so a caller can refuse to
+// remove the last one and lock everybody out.
+func (s *Store) CountAdmins(ctx context.Context) (int, error) {
+	var n int
+	const q = `SELECT count(*) FROM users WHERE is_admin AND disabled_at IS NULL`
+	if err := s.pool.QueryRow(ctx, q).Scan(&n); err != nil {
+		return 0, fmt.Errorf("users: cannot count admins: %w", err)
+	}
+	return n, nil
 }
 
 func truncate(s string, n int) string {

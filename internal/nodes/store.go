@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -85,12 +86,16 @@ func (s *Store) Rotate(ctx context.Context, id, label string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// A blank label leaves the stored one alone rather than erasing it.
+	// A blank label leaves the stored one alone rather than erasing it. The
+	// owner_id guard keeps this off a self-enrolled machine: giving it a node
+	// token would leave it holding two credentials, which the schema forbids and
+	// which would make "what authenticates this machine" a matter of reading
+	// order. Such a machine is re-enrolled by its owner's token, not here.
 	const q = `UPDATE nodes
 	              SET token_hash = $2,
 	                  label = COALESCE(NULLIF($3, ''), label),
 	                  revoked_at = NULL
-	            WHERE id = $1`
+	            WHERE id = $1 AND owner_id IS NULL`
 	tag, err := s.pool.Exec(ctx, q, id, hash, label)
 	if err != nil {
 		return "", fmt.Errorf("nodes: cannot rotate %q: %w", id, err)
@@ -101,6 +106,34 @@ func (s *Store) Rotate(ctx context.Context, id, label string) (string, error) {
 	return token, nil
 }
 
+// ErrForeign reports a machine id already claimed by another account.
+var ErrForeign = errors.New("nodes: that machine id belongs to another account")
+
+// EnsureOwned registers a machine to an account, or confirms it already is.
+//
+// This is the self-enrolment path: a machine that presents its owner's token
+// needs no prior registration, so the first connection creates the row. An id
+// already held by somebody else is refused rather than taken over — otherwise
+// guessing a colleague's machine name would be enough to impersonate it.
+func (s *Store) EnsureOwned(ctx context.Context, id string, ownerID uuid.UUID, label string) error {
+	const q = `
+		INSERT INTO nodes (id, label, owner_id) VALUES ($1, NULLIF($2, ''), $3)
+		ON CONFLICT (id) DO UPDATE
+		   SET label      = COALESCE(nodes.label, NULLIF($2, '')),
+		       revoked_at = NULL
+		 WHERE nodes.owner_id = $3`
+	tag, err := s.pool.Exec(ctx, q, id, label, ownerID)
+	if err != nil {
+		return fmt.Errorf("nodes: cannot enrol %q: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		// The row exists and the WHERE excluded it: either a different owner, or
+		// a machine still holding a token of its own.
+		return ErrForeign
+	}
+	return nil
+}
+
 // Authenticate verifies a presented token against the stored hash.
 //
 // A revoked node and an unknown id are reported as distinct errors: the
@@ -108,7 +141,8 @@ func (s *Store) Rotate(ctx context.Context, id, label string) (string, error) {
 // log can tell "I deleted you" from "your token is wrong".
 func (s *Store) Authenticate(ctx context.Context, id, token string) error {
 	const q = `SELECT token_hash, revoked_at FROM nodes WHERE id = $1`
-	var hash string
+	// Nullable since self-enrolled machines hold no token of their own.
+	var hash *string
 	var revokedAt *time.Time
 	switch err := s.pool.QueryRow(ctx, q, id).Scan(&hash, &revokedAt); {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -119,7 +153,12 @@ func (s *Store) Authenticate(ctx context.Context, id, token string) error {
 	if revokedAt != nil {
 		return ErrRevoked
 	}
-	ok, err := auth.Verify(token, hash)
+	if hash == nil {
+		// Owner-enrolled: it must present a user token, and presenting a node
+		// token instead is as wrong as presenting the wrong one.
+		return ErrNotFound
+	}
+	ok, err := auth.Verify(token, *hash)
 	if err != nil {
 		return fmt.Errorf("nodes: cannot verify %q: %w", id, err)
 	}

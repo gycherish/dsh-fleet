@@ -125,9 +125,19 @@ type NodeDescriptor struct {
 // Hello is the first frame on every connection. It carries the node token
 // in-band because the WHATWG WebSocket constructor cannot set request headers.
 type Hello struct {
-	T        string         `json:"t"`
-	Protocol int            `json:"protocol"`
-	NodeID   string         `json:"nodeId"`
+	T        string `json:"t"`
+	Protocol int    `json:"protocol"`
+	NodeID   string `json:"nodeId"`
+	// Username names the account whose token this is, and selects the credential
+	// kind: present means Token is that person's `ut_` token and the machine
+	// enrols itself; absent means Token is this machine's own `nt_` token, minted
+	// by `dshf node add`.
+	//
+	// Two kinds rather than one because they suit different situations. A
+	// container is handed a machine token and never sees a UI; a person types
+	// their own username and token into a plugin form and expects the machine to
+	// appear without a second step on the control plane.
+	Username string         `json:"username,omitempty"`
 	Token    string         `json:"token"`
 	Node     NodeDescriptor `json:"node"`
 	Caps     []string       `json:"caps"`
