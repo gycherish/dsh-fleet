@@ -1,0 +1,251 @@
+/*
+ * dsh-fleet site styles.
+ *
+ * The palette is the product's own vocabulary: a slate instrument panel, one
+ * teal accent, and green reserved strictly for "this machine is up" — the same
+ * meaning the status dot carries in the console, so the site and the app agree
+ * about what a green dot means.
+ *
+ * Monospace is the display face. No webfont is loaded: a font request the
+ * visitor waits on, to render four headings, is a bad trade, and the terminal
+ * character it buys suits the subject better than another humanist sans.
+ */
+
+:root {
+  --bg:        #f2f5f8;
+  --panel:     #ffffff;
+  --sunk:      #e6ecf2;
+  --ink:       #111c28;
+  --ink-soft:  #38495c;
+  --muted:     #63758a;
+  --rule:      #d2dbe4;
+  --rule-soft: #e3e9ef;
+  --accent:    #17727c;
+  --accent-in: #ffffff;
+  --up:        #2f7d5c;
+  --warn:      #946a1e;
+  --grid:      rgba(23, 114, 124, .085);
+
+  --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", "SFMono-Regular", Consolas, "Sarasa Mono SC", monospace;
+
+  --measure: 54rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        #0d141d;
+    --panel:     #141d29;
+    --sunk:      #101823;
+    --ink:       #dde5ee;
+    --ink-soft:  #b3c1d1;
+    --muted:     #7f90a4;
+    --rule:      #253444;
+    --rule-soft: #1c2836;
+    --accent:    #5fc4cd;
+    --accent-in: #0d141d;
+    --up:        #5fbf92;
+    --warn:      #d9a95e;
+    --grid:      rgba(95, 196, 205, .10);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16.5px/1.7 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}
+
+.wrap { max-width: var(--measure); margin-inline: auto; padding-inline: 1.25rem; }
+
+a { color: var(--accent); text-underline-offset: .18em; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: .875em;
+  background: var(--sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  padding: .08em .32em;
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: .82rem;
+  line-height: 1.7;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: .9rem 1.05rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+pre code { background: none; border: 0; padding: 0; font-size: 1em; }
+pre .c { color: var(--muted); font-style: italic; }
+
+/* ── masthead ────────────────────────────────────────────────────────────── */
+
+.top {
+  border-bottom: 1px solid var(--rule);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.bar {
+  display: flex; align-items: center; gap: 1rem;
+  padding-block: 1rem;
+  font-family: var(--mono); font-size: .8rem;
+}
+.bar .mark { font-weight: 700; letter-spacing: -.03em; color: var(--ink); text-decoration: none; }
+.bar nav { margin-left: auto; display: flex; gap: 1rem; }
+.bar nav a { text-decoration: none; }
+.bar nav a:hover { text-decoration: underline; }
+
+.hero { padding-block: 3rem 3.5rem; }
+.hero h1 {
+  font-family: var(--mono);
+  font-size: clamp(1.9rem, 6.5vw, 3rem);
+  line-height: 1.12;
+  letter-spacing: -.045em;
+  font-weight: 700;
+  margin: 0 0 1rem;
+  text-wrap: balance;
+}
+.hero p {
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  max-width: 38rem;
+  margin: 0 0 1.75rem;
+}
+.hero .cta { display: flex; flex-wrap: wrap; gap: .7rem; }
+.btn {
+  font: 600 .92rem/1 var(--sans);
+  padding: .72rem 1.15rem;
+  border-radius: 5px;
+  text-decoration: none;
+  border: 1px solid var(--accent);
+}
+.btn.solid { background: var(--accent); color: var(--accent-in); }
+.btn.ghost { color: var(--accent); }
+.btn:hover { filter: brightness(1.08); }
+
+/* ── sections ────────────────────────────────────────────────────────────── */
+
+section { padding-block: 3rem; border-top: 1px solid var(--rule-soft); }
+section:first-of-type { border-top: 0; }
+
+.label {
+  font-family: var(--mono); font-size: .72rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 .8rem;
+}
+h2 {
+  font-size: 1.5rem; line-height: 1.3; letter-spacing: -.02em;
+  font-weight: 660; margin: 0 0 1rem; text-wrap: balance;
+}
+h3 { font-size: 1rem; font-weight: 660; margin: 0 0 .35rem; }
+p { margin: 0 0 1rem; }
+p:last-child { margin-bottom: 0; }
+
+blockquote {
+  margin: 1.25rem 0;
+  padding: 1rem 1.15rem;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  font-size: .96rem;
+  color: var(--ink-soft);
+}
+blockquote p { margin: 0; }
+blockquote cite {
+  display: block; margin-top: .5rem;
+  font-family: var(--mono); font-size: .72rem; font-style: normal; color: var(--muted);
+}
+
+/* ── the three-point grid ────────────────────────────────────────────────── */
+
+.points { display: grid; gap: .8rem; grid-template-columns: 1fr; margin-top: 1.25rem; }
+@media (min-width: 46rem) { .points { grid-template-columns: repeat(3, 1fr); } }
+
+.point {
+  background: var(--panel); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 1rem 1.1rem;
+}
+.point h3 { display: flex; align-items: baseline; gap: .5rem; }
+.point .dot {
+  width: .5rem; height: .5rem; border-radius: 50%;
+  background: var(--up); flex: none; translate: 0 -.1rem;
+}
+.point p { font-size: .9rem; color: var(--ink-soft); }
+
+/* ── diagram ─────────────────────────────────────────────────────────────── */
+
+figure { margin: 1.5rem 0 0; }
+.svgwrap {
+  overflow-x: auto;
+  /* Bleed to the viewport edges on a phone so the scrollable area is as wide
+     as the screen rather than as wide as the text column. */
+  margin-inline: -1.25rem;
+  padding-inline: 1.25rem;
+}
+svg {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  /* Below this the labels shrink past reading size. A diagram the reader can
+     scroll beats one that fits and cannot be read, so it overflows its own
+     scroll container instead of scaling down with the page. */
+  min-width: 34rem;
+  margin-inline: auto;
+}
+.sv-panel { fill: var(--panel); stroke: var(--rule); }
+.sv-node  { fill: var(--panel); stroke: var(--up); }
+.sv-t     { fill: var(--ink); font-family: var(--mono); font-size: 12px; }
+.sv-s     { fill: var(--muted); font-family: var(--mono); font-size: 9.5px; }
+.sv-line  { stroke: var(--accent); fill: none; stroke-width: 1.4; }
+.sv-up    { stroke: var(--up); fill: none; stroke-width: 1.4; }
+figcaption {
+  font-family: var(--mono); font-size: .72rem; color: var(--muted);
+  margin-top: .75rem; text-align: center;
+}
+
+/* ── plain lists ─────────────────────────────────────────────────────────── */
+
+ul.plain { list-style: none; margin: 1rem 0 0; padding: 0; }
+ul.plain li {
+  padding-left: 1.15rem; position: relative; margin-bottom: .5rem;
+  font-size: .95rem; color: var(--ink-soft);
+}
+ul.plain li::before {
+  content: ""; position: absolute; left: 0; top: .62em;
+  width: .4rem; height: .4rem; border-radius: 50%;
+  background: var(--muted);
+}
+ul.plain li.no::before { background: var(--warn); }
+
+/* ── footer ──────────────────────────────────────────────────────────────── */
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding-block: 1.75rem calc(2.5rem + env(safe-area-inset-bottom));
+  font-family: var(--mono); font-size: .75rem; color: var(--muted);
+}
+footer .row { display: flex; flex-wrap: wrap; gap: .6rem 1.25rem; align-items: center; }
+footer .row .sp { margin-left: auto; }

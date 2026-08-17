@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>dsh-fleet — one console for your DeepSeek Harness machines</title>
+<meta name="description" content="Reach every machine you run DeepSeek Harness on from one authenticated console, including your phone. Nodes dial out, so they need no inbound port.">
+<link rel="alternate" hreflang="zh" href="zh.html">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <a class="mark" href="./">dsh-fleet</a>
+      <nav>
+        <a href="#how">How</a>
+        <a href="#start">Start</a>
+        <a href="https://github.com/gycherish/dsh-fleet">GitHub</a>
+        <a href="zh.html" hreflang="zh">中文</a>
+      </nav>
+    </div>
+
+    <div class="hero">
+      <h1>Your machines,<br>wherever you are.</h1>
+      <p>
+        One authenticated console for every machine you run
+        <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> on —
+        and it works from a phone. Each machine dials <strong>out</strong>, so none of them
+        needs an inbound port, a public address, or a hole in your router.
+      </p>
+      <div class="cta">
+        <a class="btn solid" href="#start">Get started</a>
+        <a class="btn ghost" href="https://github.com/gycherish/dsh-fleet">Source</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="why">
+  <p class="label">Why it exists</p>
+  <h2><code>dsh web</code> binds loopback on purpose</h2>
+  <p>
+    It has no way to tell you apart from anyone else who can reach the port. Its own
+    documentation is direct about it:
+  </p>
+  <blockquote>
+    <p>The fence is a reachability policy, <strong>not authentication</strong>; the Web carrier provides no authentication layer.</p>
+    <cite>DeepSeek Harness — dsh-client-connection</cite>
+  </blockquote>
+  <p>
+    dsh-fleet supplies the missing layer, and the multi-machine view along with it. It does not
+    fork dsh: the node plugin is an ordinary Cordis plugin over a gateway dsh already designed to
+    be transport-agnostic.
+  </p>
+</section>
+
+<section id="how">
+  <p class="label">How it fits together</p>
+  <h2>A control plane that moves bytes and nothing else</h2>
+
+  <figure>
+    <div class="svgwrap">
+    <svg viewBox="0 0 640 300" role="img"
+         aria-label="A browser talks to the dshf control plane over HTTPS. Three machines running dsh each open an outbound WebSocket up to that control plane.">
+      <defs>
+        <marker id="a-acc" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+          <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="a-up" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+          <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--up)"/>
+        </marker>
+      </defs>
+
+      <!-- browser -->
+      <rect class="sv-panel" x="238" y="6" width="164" height="42" rx="5"/>
+      <text class="sv-t" x="320" y="26" text-anchor="middle">phone · laptop</text>
+      <text class="sv-s" x="320" y="39" text-anchor="middle">any browser</text>
+
+      <path class="sv-line" d="M320 50 V84" marker-end="url(#a-acc)"/>
+      <text class="sv-s" x="330" y="72">HTTPS + WS</text>
+
+      <!-- control plane -->
+      <rect class="sv-panel" x="178" y="88" width="284" height="64" rx="5"/>
+      <text class="sv-t" x="320" y="112" text-anchor="middle">dshf — the control plane</text>
+      <text class="sv-s" x="320" y="130" text-anchor="middle">accounts · machine registry · frame routing</text>
+      <text class="sv-s" x="320" y="144" text-anchor="middle">PostgreSQL</text>
+
+      <!-- uplinks -->
+      <path class="sv-up" d="M118 214 V176 H300 V158" marker-end="url(#a-up)"/>
+      <path class="sv-up" d="M320 214 V158" marker-end="url(#a-up)"/>
+      <path class="sv-up" d="M522 214 V176 H340 V158" marker-end="url(#a-up)"/>
+      <text class="sv-s" x="352" y="192">outbound WSS — the machine dials up</text>
+
+      <!-- nodes -->
+      <rect class="sv-node" x="46" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="118" y="240" text-anchor="middle">desktop</text>
+      <text class="sv-s" x="118" y="256" text-anchor="middle">dsh + node plugin</text>
+
+      <rect class="sv-node" x="248" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="320" y="240" text-anchor="middle">laptop</text>
+      <text class="sv-s" x="320" y="256" text-anchor="middle">dsh + node plugin</text>
+
+      <rect class="sv-node" x="450" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="522" y="240" text-anchor="middle">server</text>
+      <text class="sv-s" x="522" y="256" text-anchor="middle">dsh + node plugin</text>
+
+      <text class="sv-s" x="320" y="292" text-anchor="middle">git · builds · tests · language servers all stay on the machine</text>
+    </svg>
+    </div>
+    <figcaption>Only the control plane needs an address. The machines reach up to it.</figcaption>
+  </figure>
+
+  <div class="points">
+    <div class="point">
+      <h3><span class="dot"></span>Genuinely local</h3>
+      <p>
+        Each machine runs its own agent. Builds, tests, git and language servers execute there,
+        on the real filesystem. The control plane forwards; it never executes on anyone's behalf.
+      </p>
+    </div>
+    <div class="point">
+      <h3><span class="dot"></span>The real UI</h3>
+      <p>
+        Your browser loads that machine's own dsh interface, served through the uplink — not a
+        reimplementation of it. New dsh features appear without a dsh-fleet release.
+      </p>
+    </div>
+    <div class="point">
+      <h3><span class="dot"></span>Opaque by design</h3>
+      <p>
+        The control plane never parses dsh's data. It moves frames, correlates ids, and applies
+        its own access policy. Because it does not understand the API, upgrades do not break it.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <p class="label">Getting started</p>
+  <h2>Two machines, five minutes</h2>
+
+  <p>Bring up the control plane. Docker is the supported deployment.</p>
+<pre><code>cp deploy/.env.example deploy/.env    <span class="c"># change both passwords</span>
+docker compose -f deploy/docker-compose.yml up -d</code></pre>
+
+  <p>Register a machine and mint its one-time token.</p>
+<pre><code>docker compose -f deploy/docker-compose.yml exec dshf \
+  dshf node add laptop --label "My laptop"</code></pre>
+
+  <p>Then on that machine, install the plugin and start <code>dsh web</code> as you already do.</p>
+<pre><code>dsh plugin --profile web add &lt;the node plugin&gt;
+
+export DSH_FLEET_URL=wss://fleet.example.com/uplink
+export DSH_FLEET_NODE_ID=laptop
+export DSH_FLEET_TOKEN=nt_...
+
+dsh web</code></pre>
+
+  <p>
+    Without <code>DSH_FLEET_URL</code> the plugin stays inert, so installing it never changes how
+    <code>dsh web</code> already behaves on that machine.
+  </p>
+</section>
+
+<section id="honest">
+  <p class="label">Before you deploy it</p>
+  <h2>What this is not, yet</h2>
+  <p>
+    Pre-alpha, and the gaps are the kind worth knowing before rather than after.
+  </p>
+  <ul class="plain">
+    <li class="no">No TLS and no rate limiting. Put a terminating proxy in front before exposing it; the default bind keeps it on loopback until you do.</li>
+    <li class="no">One browser drives one machine at a time. The dsh client addresses its API and assets absolutely, so a machine takes the whole origin while you are in it.</li>
+    <li class="no">The wire protocol is versioned but not stable. Node and control plane should be upgraded together.</li>
+    <li>Privileged methods — credentials, settings, the host's own file dialogs — are refused by default and every decision is recorded.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>MIT</span>
+    <a href="https://github.com/gycherish/dsh-fleet">Repository</a>
+    <a href="https://github.com/gycherish/dsh-fleet/blob/main/docs/envelope.md">Wire protocol</a>
+    <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
+    <span class="sp"><a href="zh.html" hreflang="zh">中文</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

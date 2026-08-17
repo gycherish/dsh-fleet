@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>dsh-fleet — 一个控制台管理你所有的 DeepSeek Harness 机器</title>
+<meta name="description" content="用一个带认证的控制台访问你所有跑着 DeepSeek Harness 的机器，手机也能用。节点主动拨出，不需要任何入站端口。">
+<link rel="alternate" hreflang="en" href="index.html">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <a class="mark" href="zh.html">dsh-fleet</a>
+      <nav>
+        <a href="#how">原理</a>
+        <a href="#start">上手</a>
+        <a href="https://github.com/gycherish/dsh-fleet">GitHub</a>
+        <a href="index.html" hreflang="en">English</a>
+      </nav>
+    </div>
+
+    <div class="hero">
+      <h1>你的机器，<br>随你在哪。</h1>
+      <p>
+        用一个带认证的控制台管理你所有跑着
+        <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
+        的机器——手机上也能用。每台机器都<strong>主动拨出</strong>，所以谁都不需要开放入站端口、
+        不需要公网地址、不用在路由器上打洞。
+      </p>
+      <div class="cta">
+        <a class="btn solid" href="#start">开始使用</a>
+        <a class="btn ghost" href="https://github.com/gycherish/dsh-fleet">源码</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="why">
+  <p class="label">为什么需要它</p>
+  <h2><code>dsh web</code> 只绑 loopback 是有意为之</h2>
+  <p>
+    因为它没有任何办法把你和其他能连上这个端口的人区分开。它自己的文档说得很直白：
+  </p>
+  <blockquote>
+    <p>这道围栏是可达性策略，<strong>不是认证</strong>；Web 载体不提供任何认证层。</p>
+    <cite>DeepSeek Harness — dsh-client-connection</cite>
+  </blockquote>
+  <p>
+    dsh-fleet 补上这缺的一层，并顺带给你多机视图。它不 fork dsh——节点插件是一个普通的 Cordis
+    插件，挂在 dsh 本来就设计成传输无关的网关上。
+  </p>
+</section>
+
+<section id="how">
+  <p class="label">它是怎么拼起来的</p>
+  <h2>一个只搬字节、什么都不解析的控制面</h2>
+
+  <figure>
+    <div class="svgwrap">
+    <svg viewBox="0 0 640 300" role="img"
+         aria-label="浏览器通过 HTTPS 连到 dshf 控制面。三台跑着 dsh 的机器各自向上开一条 WebSocket 连到控制面。">
+      <defs>
+        <marker id="z-acc" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+          <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="z-up" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+          <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--up)"/>
+        </marker>
+      </defs>
+
+      <rect class="sv-panel" x="238" y="6" width="164" height="42" rx="5"/>
+      <text class="sv-t" x="320" y="26" text-anchor="middle">手机 · 电脑</text>
+      <text class="sv-s" x="320" y="39" text-anchor="middle">任意浏览器</text>
+
+      <path class="sv-line" d="M320 50 V84" marker-end="url(#z-acc)"/>
+      <text class="sv-s" x="330" y="72">HTTPS + WS</text>
+
+      <rect class="sv-panel" x="178" y="88" width="284" height="64" rx="5"/>
+      <text class="sv-t" x="320" y="112" text-anchor="middle">dshf — 控制面</text>
+      <text class="sv-s" x="320" y="130" text-anchor="middle">账号 · 节点注册表 · 帧路由</text>
+      <text class="sv-s" x="320" y="144" text-anchor="middle">PostgreSQL</text>
+
+      <path class="sv-up" d="M118 214 V176 H300 V158" marker-end="url(#z-up)"/>
+      <path class="sv-up" d="M320 214 V158" marker-end="url(#z-up)"/>
+      <path class="sv-up" d="M522 214 V176 H340 V158" marker-end="url(#z-up)"/>
+      <text class="sv-s" x="352" y="192">向外的 WSS —— 机器主动拨上来</text>
+
+      <rect class="sv-node" x="46" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="118" y="240" text-anchor="middle">台式机</text>
+      <text class="sv-s" x="118" y="256" text-anchor="middle">dsh + 节点插件</text>
+
+      <rect class="sv-node" x="248" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="320" y="240" text-anchor="middle">笔记本</text>
+      <text class="sv-s" x="320" y="256" text-anchor="middle">dsh + 节点插件</text>
+
+      <rect class="sv-node" x="450" y="218" width="144" height="56" rx="5"/>
+      <text class="sv-t" x="522" y="240" text-anchor="middle">服务器</text>
+      <text class="sv-s" x="522" y="256" text-anchor="middle">dsh + 节点插件</text>
+
+      <text class="sv-s" x="320" y="292" text-anchor="middle">git · 编译 · 测试 · 语言服务器全都留在各自机器上</text>
+    </svg>
+    </div>
+    <figcaption>只有控制面需要一个地址，机器们向上够到它。</figcaption>
+  </figure>
+
+  <div class="points">
+    <div class="point">
+      <h3><span class="dot"></span>真正本地</h3>
+      <p>
+        每台机器跑自己的 agent。编译、测试、git、语言服务器都在那台机器上、在真实的文件系统上执行。
+        控制面只做转发，不代替谁执行。
+      </p>
+    </div>
+    <div class="point">
+      <h3><span class="dot"></span>真实的界面</h3>
+      <p>
+        浏览器加载的是那台机器自己的 dsh 界面，经上行通道送达——不是一个复刻品。
+        dsh 出了新功能，不需要 dsh-fleet 跟着发版。
+      </p>
+    </div>
+    <div class="point">
+      <h3><span class="dot"></span>刻意的不透明</h3>
+      <p>
+        控制面从不解析 dsh 的数据。它搬运帧、关联请求 id、执行自己的访问策略。
+        正因为它不认识那套接口，dsh 升级不会把它弄坏。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <p class="label">上手</p>
+  <h2>两台机器，五分钟</h2>
+
+  <p>先起控制面。Docker 是推荐的部署方式。</p>
+<pre><code>cp deploy/.env.example deploy/.env    <span class="c"># 改掉两个密码</span>
+docker compose -f deploy/docker-compose.yml up -d</code></pre>
+
+  <p>注册一台机器，拿到它的一次性 token。</p>
+<pre><code>docker compose -f deploy/docker-compose.yml exec dshf \
+  dshf node add laptop --label "我的笔记本"</code></pre>
+
+  <p>然后在那台机器上装插件，照常启动 <code>dsh web</code>。</p>
+<pre><code>dsh plugin --profile web add &lt;节点插件&gt;
+
+export DSH_FLEET_URL=wss://fleet.example.com/uplink
+export DSH_FLEET_NODE_ID=laptop
+export DSH_FLEET_TOKEN=nt_...
+
+dsh web</code></pre>
+
+  <p>
+    没有配置 <code>DSH_FLEET_URL</code> 时插件完全不生效，所以装上它不会改变
+    <code>dsh web</code> 在那台机器上原本的行为。
+  </p>
+</section>
+
+<section id="honest">
+  <p class="label">部署之前</p>
+  <h2>它目前还不是什么</h2>
+  <p>
+    Pre-alpha，而下面这些缺口属于「事前知道比事后发现好」的那类。
+  </p>
+  <ul class="plain">
+    <li class="no">没有 TLS，也没有限流。对外暴露前请在前面放一个终止 TLS 的反向代理；在那之前默认绑定会把它锁在 loopback 上。</li>
+    <li class="no">一个浏览器同时只驱动一台机器。dsh 客户端用绝对路径寻址 API 和静态资源，所以你进去之后那台机器占据整个 origin。</li>
+    <li class="no">通信协议有版本号但还不稳定。节点和控制面应当一起升级。</li>
+    <li>特权方法——凭据、设置、宿主自己的文件对话框——默认拒绝，且每次决定都会记录。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>MIT</span>
+    <a href="https://github.com/gycherish/dsh-fleet">仓库</a>
+    <a href="https://github.com/gycherish/dsh-fleet/blob/main/docs/envelope.md">通信协议</a>
+    <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
+    <span class="sp"><a href="index.html" hreflang="en">English</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
