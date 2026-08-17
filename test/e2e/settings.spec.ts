@@ -55,7 +55,7 @@ test('the Models page loads its providers through the control plane', async ({ p
   expect(failures, 'no /api call may fail while the settings pages load').toEqual([])
 })
 
-test('privileged writes stay refused while the reads are allowed', async ({ page }) => {
+test('the whole pinned set reaches the node by default', async ({ page }) => {
   await signInAndOpen(page)
 
   const status = await page.evaluate(async () => {
@@ -64,23 +64,22 @@ test('privileged writes stay refused while the reads are allowed', async ({ page
       headers: { 'content-type': 'application/json' },
       body: '{}',
     })).status
-    return {
-      describeSettings: await call('settings.describe'),
-      describeCredentials: await call('credentials.describe'),
-      readPreset: await call('agentPreset.read'),
-      setCredential: await call('credentials.set'),
-      updateSettings: await call('settings.update'),
-      openPath: await call('host.openPath'),
-    }
+    const out: Record<string, number> = {}
+    for (const method of [
+      'settings.describe', 'credentials.describe', 'agentPreset.read',
+      'settings.update', 'settings.replace', 'settings.mutate', 'settings.openDocument',
+      'credentials.set', 'credentials.unset',
+      'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
+      'host.pickDirectory', 'host.openPath', 'llm.discoverModels',
+    ]) out[method] = await call(method)
+    return out
   })
 
-  // 200 here means the gate forwarded and the node answered; the node's own
-  // verdict on a deliberately empty payload is not this test's business.
-  expect(status.describeSettings, 'settings.describe must reach the node').toBe(200)
-  expect(status.describeCredentials, 'credentials.describe must reach the node').toBe(200)
-  expect(status.readPreset, 'agentPreset.read must reach the node').toBe(200)
-
-  expect(status.setCredential, 'credentials.set must be refused by default').toBe(403)
-  expect(status.updateSettings, 'settings.update must be refused by default').toBe(403)
-  expect(status.openPath, 'host.openPath must be refused by default').toBe(403)
+  // 200 means the gate forwarded and the node answered. What the node makes of
+  // a deliberately empty payload is its own business — the point here is that
+  // nothing comes back 403, which is what broke the Agent presets page.
+  for (const [method, code] of Object.entries(status)) {
+    expect(code, `${method} must not be refused by the control plane`).not.toBe(403)
+    expect(code, `${method} must reach the node`).toBe(200)
+  }
 })

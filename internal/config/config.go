@@ -37,7 +37,8 @@ type Config struct {
 	TLSCert string
 	TLSKey  string
 	// PrivilegedAccess is how much of dsh's loopback-pinned method set the
-	// browser plane may reach: none, read, or full. Defaults to read.
+	// browser plane may reach: none, read, or full. Defaults to full, so the
+	// console can actually drive the machine; narrow it for a read-only one.
 	PrivilegedAccess string
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
@@ -63,7 +64,7 @@ func Load() (*Config, error) {
 		AdminPassword:    os.Getenv("DSHF_ADMIN_PASSWORD"),
 		TLSCert:          os.Getenv("DSHF_TLS_CERT"),
 		TLSKey:           os.Getenv("DSHF_TLS_KEY"),
-		PrivilegedAccess: envOr("DSHF_PRIVILEGED_ACCESS", "read"),
+		PrivilegedAccess: envOr("DSHF_PRIVILEGED_ACCESS", "full"),
 		LogLevel:         envOr("DSHF_LOG_LEVEL", "info"),
 	}
 

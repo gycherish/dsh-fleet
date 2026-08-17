@@ -23,28 +23,37 @@ import (
 // forwards.
 //
 // dsh pins that set inside its own browser carrier, which a custom carrier
-// does not pass through — so the boundary is this project's to draw, and one
-// boolean drew it too coarsely. Refusing the reads broke the settings pages
-// outright while protecting nothing: dsh redacts secret-role values from every
-// layer of `settings.describe`, and `credentials.describe` returns
-// value-free views.
+// does not pass through — so the boundary is this project's to draw.
+//
+// It is drawn at AccessFull, because the point of this project is to drive
+// your own machine from your phone, and a console where half the buttons
+// answer 403 is not that. Withholding the writes read as a safety measure but
+// was not one: the console already requires a login, the uplink is
+// authenticated per machine, and anyone through both of those can run shell
+// commands via an ordinary session. Refusing `settings.update` while allowing
+// `session.prompt` protects nothing and breaks the Agent presets page.
+//
+// The narrower levels stay for anyone who wants a console they can hand out
+// as read-only.
 type Access string
 
 const (
-	// AccessNone refuses the whole pinned set.
+	// AccessNone refuses the whole pinned set. The settings pages will not
+	// load at all.
 	AccessNone Access = "none"
-	// AccessRead forwards the reads and refuses the writes. The default.
+	// AccessRead forwards the reads and refuses the writes. A console for
+	// looking, not touching — some pages will show a transport failure where
+	// they expected to save.
 	AccessRead Access = "read"
-	// AccessFull forwards everything, including credential writes and the
-	// methods that drive the node's own desktop.
+	// AccessFull forwards everything. The default.
 	AccessFull Access = "full"
 )
 
-// ParseAccess reads a configured level, defaulting to AccessRead.
+// ParseAccess reads a configured level, defaulting to AccessFull.
 func ParseAccess(value string) (Access, error) {
 	switch Access(strings.ToLower(strings.TrimSpace(value))) {
 	case "":
-		return AccessRead, nil
+		return AccessFull, nil
 	case AccessNone:
 		return AccessNone, nil
 	case AccessRead:
@@ -95,10 +104,10 @@ func (a Access) refuse(method string) (bool, string) {
 		return false, ""
 	}
 	if _, ok := privilegedWrite[method]; ok {
-		return true, "privileged write withheld by control-plane policy (DSHF_PRIVILEGED_ACCESS=full to allow)"
+		return true, "this console is read-only (unset DSHF_PRIVILEGED_ACCESS, or set it to full, to allow changes)"
 	}
 	if _, ok := privilegedRead[method]; ok && a == AccessNone {
-		return true, "privileged read withheld by control-plane policy (DSHF_PRIVILEGED_ACCESS=read to allow)"
+		return true, "this console cannot read machine settings (DSHF_PRIVILEGED_ACCESS=read or full to allow)"
 	}
 	return false, ""
 }
@@ -126,7 +135,7 @@ type Handler struct {
 	// the browser to the chooser.
 	NoSelection http.Handler
 	// Privileged is how much of the pinned set to forward. The zero value is
-	// treated as AccessRead, which is what a fresh Handler should do.
+	// treated as AccessFull, so a Handler nobody configured is a working one.
 	Privileged Access
 }
 
@@ -152,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ns == envelope.NsDSH {
 		level := h.Privileged
 		if level == "" {
-			level = AccessRead
+			level = AccessFull
 		}
 		if blocked, why := level.refuse(method); blocked {
 			h.record(nodeID, ns, method, false, http.StatusForbidden, why)

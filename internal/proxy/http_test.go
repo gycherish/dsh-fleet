@@ -102,7 +102,7 @@ func TestAccessLevels(t *testing.T) {
 }
 
 func TestParseAccess(t *testing.T) {
-	for input, want := range map[string]Access{"": AccessRead, "none": AccessNone, "READ": AccessRead, " full ": AccessFull} {
+	for input, want := range map[string]Access{"": AccessFull, "none": AccessNone, "READ": AccessRead, " full ": AccessFull} {
 		got, err := ParseAccess(input)
 		if err != nil || got != want {
 			t.Errorf("ParseAccess(%q) = (%q, %v), want %q", input, got, err, want)
@@ -133,7 +133,7 @@ func TestPrivilegedWriteIsRefusedAndAudited(t *testing.T) {
 		Log:        discardLogger(),
 		Audit:      audit,
 		SelectNode: func(*http.Request) string { return "devbox" },
-		// Privileged left at its zero value: the default must refuse writes.
+		Privileged: AccessRead,
 	}
 	// The registry is empty, so reaching the node would fail with 502. A 403
 	// therefore proves the gate ran before any connection lookup.
@@ -148,17 +148,23 @@ func TestPrivilegedWriteIsRefusedAndAudited(t *testing.T) {
 	}
 }
 
-// The default has to let the settings pages load. Refusing the reads was the
-// original behaviour and it broke them for no protection: dsh redacts secret
-// values from every layer it returns.
-func TestDefaultForwardsPrivilegedReads(t *testing.T) {
+// The default has to let every button work. Withholding the writes read as a
+// safety measure but was not one — anyone past the login can already run shell
+// commands through an ordinary session — and it broke the Agent presets page
+// with "transport failure for /api/settings.update: HTTP 403".
+func TestDefaultForwardsTheWholePinnedSet(t *testing.T) {
 	h := &Handler{
 		Registry:   uplink.NewRegistry(),
 		Log:        discardLogger(),
 		Audit:      &recordingAudit{},
 		SelectNode: func(*http.Request) string { return "devbox" },
+		// Privileged left at its zero value on purpose.
 	}
-	for _, method := range []string{"settings.describe", "credentials.describe", "agentPreset.read"} {
+	methods := []string{"settings.describe", "credentials.describe", "agentPreset.read"}
+	for method := range privilegedWrite {
+		methods = append(methods, method)
+	}
+	for _, method := range methods {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("POST", "/api/"+method, nil))
 		// 502 means it passed the gate and only then found no node.

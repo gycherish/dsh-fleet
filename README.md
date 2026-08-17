@@ -108,7 +108,9 @@ The node plugin builds **against a local harness checkout**, expected as `deepse
 
 The control plane **never parses dsh business data**. It forwards opaque frames, correlates request ids, and applies its own access policy. Because it does not understand dsh's API, a dsh upgrade does not require a control-plane release.
 
-That policy has one knob. dsh pins a set of methods to loopback inside its own browser carrier, and a custom carrier has to decide for itself: `DSHF_PRIVILEGED_ACCESS` defaults to `read`, so settings and presets are readable but nothing can be changed from a remote browser. `full` also allows credential writes, settings edits, and the methods that act on the machine's own desktop.
+That policy has one knob. dsh pins a set of methods to loopback inside its own browser carrier, and a custom carrier has to decide for itself. `DSHF_PRIVILEGED_ACCESS` defaults to `full`, so every button works — reaching those methods already costs a console login and an authenticated machine, and anyone past both can run shell commands through an ordinary session. Set it to `read` for a console that can look but not touch, or `none` to withhold machine settings entirely.
+
+One button stays hidden regardless: dsh registers **Open configuration file** only on a loopback origin, decided in its client from the page hostname. It would open a file on that machine's own desktop, where a remote browser could not see it.
 
 A second `fleet` namespace carries this project's own methods — node telemetry, file browsing — implemented by the plugin directly against Cordis services. That half is ours, so it does not move when dsh does.
 
