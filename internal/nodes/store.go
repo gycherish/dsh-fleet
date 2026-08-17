@@ -69,6 +69,38 @@ func (s *Store) Register(ctx context.Context, id, label string) (string, error) 
 	return token, nil
 }
 
+// Rotate issues a fresh token for an existing node and lifts any revocation.
+//
+// Revoking is not deleting — the row keeps its telemetry history — so without
+// this the operator who revokes a leaked token can never re-enrol that machine
+// under its own name, which is precisely when they want to. Any live
+// connection keeps running on the old token until it drops; the next handshake
+// needs the new one.
+func (s *Store) Rotate(ctx context.Context, id, label string) (string, error) {
+	token, err := auth.NewNodeToken()
+	if err != nil {
+		return "", err
+	}
+	hash, err := auth.Hash(token)
+	if err != nil {
+		return "", err
+	}
+	// A blank label leaves the stored one alone rather than erasing it.
+	const q = `UPDATE nodes
+	              SET token_hash = $2,
+	                  label = COALESCE(NULLIF($3, ''), label),
+	                  revoked_at = NULL
+	            WHERE id = $1`
+	tag, err := s.pool.Exec(ctx, q, id, hash, label)
+	if err != nil {
+		return "", fmt.Errorf("nodes: cannot rotate %q: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ErrNotFound
+	}
+	return token, nil
+}
+
 // Authenticate verifies a presented token against the stored hash.
 //
 // A revoked node and an unknown id are reported as distinct errors: the

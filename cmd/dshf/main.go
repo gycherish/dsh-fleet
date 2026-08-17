@@ -80,6 +80,7 @@ func usage() {
 Usage:
   dshf serve                       run the control plane
   dshf node add <id> [--label]     register a machine and mint its one-time token
+  dshf node add <id> --rotate      reissue the token for a machine already known
   dshf node ls                     list machines and their status
   dshf node revoke <id>            withdraw a machine's token
   dshf user add <name> [--admin]   create a console account
@@ -365,17 +366,30 @@ func nodeCmd(args []string) error {
 	case "add":
 		fs := flag.NewFlagSet("node add", flag.ContinueOnError)
 		label := fs.String("label", "", "operator-facing display name")
-		id, err := parseOneArg(fs, args[1:], "dshf node add <id> [--label NAME]")
+		rotate := fs.Bool("rotate", false, "reissue the token for a machine that already exists")
+		id, err := parseOneArg(fs, args[1:], "dshf node add <id> [--label NAME] [--rotate]")
 		if err != nil {
 			return err
 		}
-		token, err := s.Register(ctx, id, *label)
+		verb := "registered"
+		var token string
+		if *rotate {
+			// Re-enrolment keeps the row, so the machine's history survives and
+			// the operator does not have to invent a second name for it.
+			verb = "reissued token for"
+			token, err = s.Rotate(ctx, id, *label)
+		} else {
+			token, err = s.Register(ctx, id, *label)
+		}
+		if errors.Is(err, nodes.ErrExists) {
+			return fmt.Errorf("%w (use --rotate to issue it a new token)", err)
+		}
 		if err != nil {
 			return err
 		}
 		// Printed exactly once: only the hash is stored, so there is no way to
 		// show it again.
-		fmt.Printf("registered node %q\n\n", id)
+		fmt.Printf("%s node %q\n\n", verb, id)
 		fmt.Printf("  DSH_FLEET_NODE_ID=%s\n", id)
 		fmt.Printf("  DSH_FLEET_TOKEN=%s\n\n", token)
 		fmt.Println("This token is shown once. Set it on the node alongside DSH_FLEET_URL.")
