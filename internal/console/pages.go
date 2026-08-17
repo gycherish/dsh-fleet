@@ -36,6 +36,16 @@ func renderNodes(w http.ResponseWriter, data nodesData) {
 	}
 }
 
+func renderOffline(w http.ResponseWriter, view nodeView) {
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	// 502, not 200: the machine really did fail to answer, and a proxy that
+	// reported success here would lie to anything reading the status.
+	w.WriteHeader(http.StatusBadGateway)
+	if err := templates.ExecuteTemplate(w, "offline.html", view); err != nil {
+		log.Printf("console: cannot render the offline page: %v", err)
+	}
+}
+
 func renderLogin(w http.ResponseWriter, status int, next, message string) {
 	w.Header().Set("content-type", "text/html; charset=utf-8")
 	// A login page must never be cached: a shared or restored browser would

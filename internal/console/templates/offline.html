@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+{{template "head" .}}
+<title>{{.Label}} is offline · dsh-fleet</title>
+<style>
+body { display: grid; place-items: center; }
+main { width: 100%; max-width: 24rem; text-align: center; }
+.brand { font-size: .95rem; margin-bottom: 1.6rem; justify-content: center; }
+.card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 1.6rem 1.3rem; box-shadow: 0 1px 2px var(--shadow), 0 10px 30px var(--shadow);
+}
+h1 { font-size: 1.15rem; margin: 0 0 .4rem; letter-spacing: -.01em; }
+h1 .dot { display: inline-block; margin-right: .45rem; vertical-align: middle; }
+.sub { color: var(--muted); font-size: .88rem; margin: 0; }
+.facts {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem .8rem;
+  margin: .9rem 0 0; font-size: .76rem; color: var(--muted);
+}
+.actions { display: flex; gap: .5rem; justify-content: center; margin-top: 1.4rem; }
+.actions form { margin: 0; }
+.waiting {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  margin: 1.2rem 0 0; font-size: .76rem; color: var(--muted);
+}
+.pulse { width: .4rem; height: .4rem; border-radius: 50%; background: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .pulse { animation: breathe 1.8s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+}
+</style>
+</head>
+<body>
+<main>
+  <p class="brand"><span class="mark" aria-hidden="true">dF</span> dsh-fleet</p>
+  <div class="card">
+    <h1><span class="dot {{.Status}}" aria-hidden="true"></span>{{.Label}} is {{if eq .Status "revoked"}}revoked{{else}}not connected{{end}}</h1>
+    {{if eq .Status "revoked"}}
+      <p class="sub">Its token was withdrawn. Re-enrol it with
+        <code>dshf node add {{.ID}} --rotate</code>.</p>
+    {{else if eq .Status "never-seen"}}
+      <p class="sub">This machine has never connected. Start <code>dsh web</code>
+        there with <code>DSH_FLEET_URL</code> set.</p>
+    {{else}}
+      <p class="sub">Nothing is answering for it right now. It reconnects on its
+        own once <code>dsh web</code> is running again.</p>
+    {{end}}
+    <p class="facts">
+      <span class="mono">{{.ID}}</span>
+      {{if .DSH}}<span>dsh {{.DSH}}</span>{{end}}
+      <span>seen {{.LastSeen}}</span>
+    </p>
+    <div class="actions">
+      <a class="btn primary" href="/_fleet/console">All machines</a>
+      <form method="post" action="/_fleet/logout"><button class="btn" type="submit">Sign out</button></form>
+    </div>
+    {{if ne .Status "revoked"}}
+    <p class="waiting"><span class="pulse" aria-hidden="true"></span> Watching for it to come back</p>
+    {{end}}
+  </div>
+</main>
+{{if ne .Status "revoked"}}
+<script>
+// Poll the console rather than the machine: asking the machine is what just
+// failed, and this page has to keep working while it is down.
+setInterval(async () => {
+  try {
+    const state = await (await fetch('/_fleet/state', { headers: { accept: 'application/json' } })).json()
+    if (state.nodes?.some(n => n.id === {{.ID}} && n.status === 'online')) location.reload()
+  } catch { /* still down, or the session went away; the buttons above still work */ }
+}, 4000)
+</script>
+{{end}}
+</body>
+</html>

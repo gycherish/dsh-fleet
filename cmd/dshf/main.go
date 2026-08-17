@@ -209,6 +209,10 @@ func serve(_ []string) error {
 		Privileged:  access,
 		SelectNode:  console.SelectedNode,
 		NoSelection: http.HandlerFunc(noMachineSelected),
+		// A machine can go down while someone is driving it, so the dead end
+		// still needs a real page even though the chooser now refuses to walk
+		// into one.
+		Unreachable: &console.OfflinePage{Nodes: nodeStore, Live: registry, Log: logger},
 		// The machine owns the origin root, so this tag is the console's only
 		// place to stand: without it there is no way back to the chooser and no
 		// way to sign out.

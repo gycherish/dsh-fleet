@@ -123,6 +123,10 @@
 .foot a:hover, .foot button:hover, .foot a:focus-visible, .foot button:focus-visible { border-color: var(--accent); outline: none; }
 .foot .out { color: var(--danger); }
 .note { padding: .8rem .75rem; font-size: .78rem; color: var(--muted); }
+.warn { padding: .8rem .75rem; font-size: .8rem; line-height: 1.5; color: var(--muted); }
+.warn p { margin: 0; }
+.warn strong { color: var(--ink); }
+.foot .go { margin-left: auto; color: var(--accent); }
 .hint { padding: .45rem .75rem; border-top: 1px solid var(--rule); font-size: .68rem; color: var(--muted); }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -301,7 +305,8 @@
            <span class="label">${esc(n.label)}</span>
            <span class="here">here</span>
          </div>`
-      : `<a class="item" href="${PREFIX}/select/${encodeURIComponent(n.id)}">
+      : `<a class="item" href="${PREFIX}/select/${encodeURIComponent(n.id)}"
+            ${n.status === 'online' ? '' : `data-offline="${esc(n.label)}" data-why="${esc(n.status)}"`}>
            <span class="dot ${esc(n.status)}"></span>
            <span class="label">${esc(n.label)}</span>
            <span class="meta">${esc(n.status === 'online' ? 'online' : n.lastSeen)}</span>
@@ -316,6 +321,37 @@
         <form method="post" action="${PREFIX}/logout"><button class="out" type="submit">Sign out</button></form>
       </div>
       <p class="hint">Drag this button anywhere; it parks on the nearest edge.</p>`
+
+    // Switching to a machine that cannot answer would replace the page you are
+    // on with an error, so ask first rather than doing it.
+    for (const row of panel.querySelectorAll('.item[data-offline]')) {
+      row.addEventListener('click', event => {
+        event.preventDefault()
+        warn(row.dataset.offline, row.dataset.why, row.getAttribute('href'))
+      })
+    }
+  }
+
+  const REASON = {
+    'offline': 'It is registered, but nothing is answering for it right now.',
+    'never-seen': 'This machine has never connected.',
+    'revoked': 'Its token was withdrawn, so it can no longer connect.',
+  }
+
+  /** Replace the panel with a confirmation, in place — a machine's own page is
+   *  no place to stack a second modal on top of whatever dsh already has open. */
+  function warn(label, why, href) {
+    panel.innerHTML = `
+      <div class="head">Not connected</div>
+      <div class="warn">
+        <p><strong>${esc(label)}</strong> ${esc(REASON[why] ?? REASON.offline)}
+        ${why === 'revoked' ? '' : ' Opening it shows an empty screen until it reconnects.'}</p>
+      </div>
+      <div class="foot">
+        <button class="back" type="button">Back</button>
+        ${why === 'revoked' ? '' : `<a class="go" href="${href}">Open anyway</a>`}
+      </div>`
+    panel.querySelector('.back').addEventListener('click', paintPanel)
   }
 
   async function refresh() {

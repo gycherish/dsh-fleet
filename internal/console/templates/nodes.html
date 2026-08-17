@@ -53,6 +53,18 @@ a.card:active { transform: translateY(1px); }
   margin: 1.4rem 0 0; padding: .7rem .9rem; font-size: .78rem; color: var(--muted);
   background: var(--sunk); border: 1px solid var(--rule); border-radius: 10px;
 }
+
+dialog {
+  width: min(21rem, calc(100vw - 2rem));
+  padding: 1.3rem; border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--surface); color: var(--ink);
+  box-shadow: 0 12px 40px var(--shadow);
+}
+dialog::backdrop { background: rgba(8, 14, 24, .45); }
+dialog h2 { font-size: 1rem; margin: 0 0 .4rem; }
+dialog p { font-size: .86rem; color: var(--muted); margin: 0; }
+dialog .row { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1.2rem; }
+dialog code { font-size: .8em; }
 </style>
 </head>
 <body>
@@ -73,7 +85,8 @@ a.card:active { transform: translateY(1px); }
   <ul>
     {{range .Nodes}}
     <li>
-      <a class="card {{.Status}}{{if .Current}} here{{end}}" href="/_fleet/select/{{.ID}}">
+      <a class="card {{.Status}}{{if .Current}} here{{end}}" href="/_fleet/select/{{.ID}}"
+         {{if ne .Status "online"}}data-offline="{{.Label}}" data-why="{{.Status}}" data-id="{{.ID}}"{{end}}>
         <span class="top">
           <span class="dot {{.Status}}" aria-hidden="true"></span>
           <span class="name">{{.Label}}</span>
@@ -107,5 +120,44 @@ a.card:active { transform: translateY(1px); }
     page brings you back here, switches machines, and signs you out.
   </p>
 </div>
+
+<dialog id="offline" aria-labelledby="offline-title">
+  <h2 id="offline-title"></h2>
+  <p id="offline-why"></p>
+  <div class="row">
+    <button class="btn" id="offline-cancel" autofocus>Cancel</button>
+    <a class="btn primary" id="offline-go" href="#">Open anyway</a>
+  </div>
+</dialog>
+
+<script>
+// Opening a machine that cannot answer used to leave you on a bare 502 with no
+// way back at all. There is a proper page for that now, but not walking into
+// it beats recovering from it.
+(() => {
+  const dialog = document.getElementById('offline')
+  const title = document.getElementById('offline-title')
+  const why = document.getElementById('offline-why')
+  const go = document.getElementById('offline-go')
+  const REASON = {
+    'offline': 'It is registered, but nothing is answering for it. Opening it now shows an empty screen until it reconnects.',
+    'never-seen': 'This machine has never connected. Start dsh web there with DSH_FLEET_URL set.',
+    'revoked': 'Its token was withdrawn, so it can no longer connect. Re-enrol it with: dshf node add <id> --rotate',
+  }
+
+  for (const card of document.querySelectorAll('.card[data-offline]')) {
+    card.addEventListener('click', (event) => {
+      event.preventDefault()
+      title.textContent = card.dataset.offline + ' is not connected'
+      why.textContent = REASON[card.dataset.why] || REASON.offline
+      go.href = card.getAttribute('href')
+      // A revoked machine has nothing to wait for, so offer no way in.
+      go.hidden = card.dataset.why === 'revoked'
+      dialog.showModal()
+    })
+  }
+  document.getElementById('offline-cancel').addEventListener('click', () => dialog.close())
+})()
+</script>
 </body>
 </html>

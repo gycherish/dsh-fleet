@@ -135,6 +135,14 @@ type Handler struct {
 	// NoSelection handles a request that named no node, typically by sending
 	// the browser to the chooser.
 	NoSelection http.Handler
+	// Unreachable handles a request for a machine that is not connected.
+	//
+	// It gets its own seam because the bare 502 this used to write was a dead
+	// end: the machine owns the origin root, so an error page served in its
+	// place carries none of the console's chrome, and someone who opened an
+	// offline machine on a phone had no way back at all. Nil keeps the bare
+	// status, which is right for a client that is not a browser.
+	Unreachable http.Handler
 	// Privileged is how much of the pinned set to forward. The zero value is
 	// treated as AccessFull, so a Handler nobody configured is a working one.
 	Privileged Access
@@ -177,6 +185,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, online := h.Registry.Get(nodeID)
 	if !online {
 		h.record(nodeID, ns, method, true, http.StatusBadGateway, "machine is not connected")
+		if h.Unreachable != nil {
+			h.Unreachable.ServeHTTP(w, r)
+			return
+		}
 		http.Error(w, "node is not connected", http.StatusBadGateway)
 		return
 	}
