@@ -1,5 +1,7 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 
+import { NODE_ID, signIn } from './helpers.ts'
+
 /**
  * The phone is the reason this project exists, so the flows a phone actually
  * performs are the ones worth checking in a real engine rather than with curl.
@@ -9,10 +11,6 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * looking fine: a picker that answers `directory-picker-unavailable`, an asset
  * that 404s, an `/api` call that returns the login page as HTML.
  */
-
-const USERNAME = process.env.DSHF_USER ?? 'admin'
-const PASSWORD = process.env.DSHF_PASSWORD ?? 'dev-only-password'
-const NODE_ID = process.env.DSHF_NODE ?? 'devbox'
 
 /** Console errors and failed responses seen during one test. */
 interface Faults {
@@ -32,14 +30,6 @@ function watch(page: Page): Faults {
     if (response.status() >= 400) faults.requests.push(`${response.status()} ${response.request().method()} ${response.url()}`)
   })
   return faults
-}
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto('/_fleet/console')
-  await page.getByLabel(/username/i).fill(USERNAME)
-  await page.getByLabel(/password/i).fill(PASSWORD)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await expect(page.getByRole('heading', { name: /machines/i })).toBeVisible()
 }
 
 test('the chooser renders and fits the viewport', async ({ page }, testInfo) => {
@@ -122,5 +112,5 @@ test('the way back to the chooser works', async ({ page }) => {
 
   await page.goto('/_fleet/')
   await expect(page.getByRole('heading', { name: /machines/i })).toBeVisible()
-  await expect(page.locator('.badge', { hasText: 'current' })).toBeVisible()
+  await expect(page.locator('.tag.here', { hasText: 'open' })).toBeVisible()
 })

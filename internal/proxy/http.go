@@ -5,6 +5,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -137,6 +138,9 @@ type Handler struct {
 	// Privileged is how much of the pinned set to forward. The zero value is
 	// treated as AccessFull, so a Handler nobody configured is a working one.
 	Privileged Access
+	// Inject is spliced into every HTML page the machine serves. Empty leaves
+	// the machine's pages exactly as it wrote them.
+	Inject string
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +223,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set(key, value)
 	}
+	// A page from the machine is the only place the console can put its own
+	// chrome, since the machine owns the origin root. Documents are small and
+	// arrive in one piece, so buffering one to splice a script tag in costs
+	// nothing a reader would notice.
+	if h.Inject != "" && isDocument(resp) {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxDocumentBytes))
+		if err == nil {
+			w.WriteHeader(resp.Status)
+			h.record(nodeID, ns, method, true, resp.Status, "")
+			_, _ = w.Write(splice(body, h.Inject))
+			return
+		}
+		// Fall through: a document we could not read whole is still better
+		// delivered without the overlay than not delivered at all.
+		h.Log.Warn("proxy: cannot buffer document for injection", "node", nodeID, "path", rest, "err", err)
+	}
+
 	w.WriteHeader(resp.Status)
 	h.record(nodeID, ns, method, true, resp.Status, "")
 
@@ -244,6 +265,42 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// maxDocumentBytes caps what may be buffered for injection. An application
+// shell is a few kilobytes; anything approaching this is not a page.
+const maxDocumentBytes = 8 << 20
+
+// isDocument reports an HTML page — the app shell, not an API answer that
+// happens to be text. A 304 carries no body to splice.
+func isDocument(resp *uplink.Response) bool {
+	if resp.Status != http.StatusOK {
+		return false
+	}
+	for key, value := range resp.Headers {
+		if strings.EqualFold(key, "content-type") {
+			return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "text/html")
+		}
+	}
+	return false
+}
+
+// splice inserts tag before the document's closing body tag.
+//
+// Before </body> rather than in <head> so the script never delays first paint,
+// and so document.body exists when it runs. A document without the tag still
+// gets the script: browsers are forgiving about it, and an unclosed body is
+// not a reason to strand someone with no way back to the chooser.
+func splice(document []byte, tag string) []byte {
+	marker := []byte("</body>")
+	at := bytes.LastIndex(bytes.ToLower(document), marker)
+	if at < 0 {
+		return append(document, tag...)
+	}
+	out := make([]byte, 0, len(document)+len(tag))
+	out = append(out, document[:at]...)
+	out = append(out, tag...)
+	return append(out, document[at:]...)
 }
 
 // isUpgrade reports a WebSocket handshake. Both header values are

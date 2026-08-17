@@ -182,10 +182,14 @@ func serve(_ []string) error {
 		Log:   logger,
 	}))
 	mux.Handle("GET "+console.PathSelect+"{node}", guard.Require(http.HandlerFunc(guard.Select)))
-	mux.Handle("GET "+console.PathNodeAPI, guard.Require(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			writeNodeList(w, r, nodeStore, registry, logger)
-		})))
+	// What the injected overlay reads, and the only console surface a machine's
+	// own page ever talks to.
+	mux.Handle("GET "+console.PathState, guard.Require(&console.StatePage{
+		Nodes: nodeStore,
+		Live:  registry,
+		Log:   logger,
+	}))
+	mux.Handle("GET "+console.PathOverlay, guard.Require(http.HandlerFunc(console.Overlay)))
 
 	// ── everything else belongs to the selected machine ──
 	//
@@ -205,6 +209,10 @@ func serve(_ []string) error {
 		Privileged:  access,
 		SelectNode:  console.SelectedNode,
 		NoSelection: http.HandlerFunc(noMachineSelected),
+		// The machine owns the origin root, so this tag is the console's only
+		// place to stand: without it there is no way back to the chooser and no
+		// way to sign out.
+		Inject: console.OverlayScript,
 	}))
 
 	server := &http.Server{
@@ -317,35 +325,6 @@ func purgeSessions(ctx context.Context, s *users.Store, log *slog.Logger) {
 			}
 		}
 	}
-}
-
-func writeNodeList(w http.ResponseWriter, r *http.Request, s *nodes.Store, reg *uplink.Registry, log *slog.Logger) {
-	list, err := s.List(r.Context())
-	if err != nil {
-		log.Error("cannot list nodes", "err", err)
-		http.Error(w, "cannot list nodes", http.StatusInternalServerError)
-		return
-	}
-	online := map[string]bool{}
-	for _, id := range reg.Online() {
-		online[id] = true
-	}
-	w.Header().Set("content-type", "application/json")
-	_, _ = w.Write([]byte("["))
-	for i, n := range list {
-		if i > 0 {
-			_, _ = w.Write([]byte(","))
-		}
-		snapshot := "null"
-		if len(n.Snapshot) > 0 {
-			snapshot = string(n.Snapshot)
-		}
-		fmt.Fprintf(w,
-			`{"id":%q,"label":%q,"online":%t,"dshVersion":%q,"platform":%q,"snapshot":%s}`,
-			n.ID, n.Label, online[n.ID], n.DSHVersion, n.Platform, snapshot,
-		)
-	}
-	_, _ = w.Write([]byte("]"))
 }
 
 // ── node ─────────────────────────────────────────────────────────────────────

@@ -1,102 +1,93 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+{{template "head" .}}
 <title>Machines · dsh-fleet</title>
 <style>
-:root {
-  --bg: #f4f6f9; --card: #ffffff; --ink: #16233a; --muted: #64758f;
-  --rule: #d3dbe6; --accent: #1f5fa8; --ok: #2e7259; --warn: #a96f1c; --off: #8b98a9;
+.wrap { max-width: 42rem; margin: 0 auto; }
+header { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.4rem; }
+header .brand { font-size: .95rem; }
+header .spacer { margin-left: auto; }
+header .who { font-size: .8rem; color: var(--muted); }
+header form { display: inline; margin: 0; }
+
+h1 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0 0 .2rem; }
+.lede { color: var(--muted); font-size: .88rem; margin: 0 0 1.2rem; }
+
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
+.card {
+  display: block; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 12px; padding: .85rem 1rem; text-decoration: none; color: inherit;
+  transition: border-color .12s, transform .12s;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1520; --card: #151e2b; --ink: #dee6f1; --muted: #8496ae;
-    --rule: #27364b; --accent: #74aae8; --ok: #66bb96; --warn: #d5a55e; --off: #6b7a8c;
-  }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  padding: 0 calc(1rem + env(safe-area-inset-right)) calc(2rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
-}
-.wrap { max-width: 40rem; margin: 0 auto; }
-header {
-  display: flex; align-items: baseline; gap: .75rem;
-  padding: 1.5rem 0 1rem; border-bottom: 1px solid var(--rule); margin-bottom: 1rem;
-}
-h1 { font-size: 1.2rem; margin: 0; letter-spacing: -.01em; }
-header .who { margin-left: auto; font-size: .8rem; color: var(--muted); }
-header form { display: inline; }
-header button {
-  font: inherit; font-size: .8rem; background: none; border: 0; padding: 0;
-  color: var(--accent); cursor: pointer; text-decoration: underline;
-}
-ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem; }
-li a {
-  display: block; background: var(--card); border: 1px solid var(--rule);
-  border-radius: 10px; padding: .9rem 1rem; text-decoration: none; color: inherit;
-}
-li a:hover, li a:focus-visible { border-color: var(--accent); outline: none; }
-li a.current { border-color: var(--accent); }
-.badge {
-  font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--accent); border: 1px solid var(--accent);
-  border-radius: 999px; padding: .05rem .4rem;
-}
+a.card:hover, a.card:focus-visible { border-color: var(--accent); outline: none; }
+a.card:active { transform: translateY(1px); }
+.card.here { border-color: var(--accent); background: var(--hover); }
+/* An unreachable machine should look unreachable, not just say so. */
+.card.offline .name, .card.never-seen .name, .card.revoked .name { color: var(--muted); }
+
 .top { display: flex; align-items: center; gap: .5rem; }
-.name { font-weight: 600; }
-.dot { width: .55rem; height: .55rem; border-radius: 50%; flex: none; background: var(--off); }
-.online .dot { background: var(--ok); }
-.revoked .dot, .never-seen .dot { background: var(--warn); }
-.state { margin-left: auto; font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .07em;
+  border-radius: 999px; padding: .1rem .45rem; border: 1px solid currentColor;
+}
+.tag.here { color: var(--accent); }
+.tag.warn { color: var(--warn); }
+.state { margin-left: auto; font-size: .72rem; color: var(--muted); }
 .meta {
-  display: flex; flex-wrap: wrap; gap: .3rem .9rem;
-  margin-top: .45rem; font-size: .8rem; color: var(--muted);
+  display: flex; flex-wrap: wrap; gap: .2rem .8rem;
+  margin-top: .4rem; font-size: .76rem; color: var(--muted);
 }
 .meta .bad { color: var(--warn); font-weight: 600; }
+
 .empty {
-  background: var(--card); border: 1px dashed var(--rule); border-radius: 10px;
-  padding: 1.5rem; text-align: center; color: var(--muted);
+  background: var(--surface); border: 1px dashed var(--rule); border-radius: 12px;
+  padding: 2rem 1.25rem; text-align: center; color: var(--muted);
 }
-.hint { margin: 1.25rem 0 0; font-size: .78rem; color: var(--muted); text-align: center; }
-code {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: .85em; background: var(--bg); border: 1px solid var(--rule);
-  border-radius: 4px; padding: .1em .35em;
+.empty code {
+  display: inline-block; margin-top: .5rem; background: var(--sunk);
+  border: 1px solid var(--rule); border-radius: 6px; padding: .3em .55em; color: var(--ink);
+}
+.tip {
+  margin: 1.4rem 0 0; padding: .7rem .9rem; font-size: .78rem; color: var(--muted);
+  background: var(--sunk); border: 1px solid var(--rule); border-radius: 10px;
 }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Machines</h1>
-    <span class="who">
-      {{if .User}}{{.User}} ·{{end}}
-      <form method="post" action="/_fleet/logout"><button type="submit">sign out</button></form>
-    </span>
+    <span class="brand"><span class="mark" aria-hidden="true">dF</span> dsh-fleet</span>
+    <span class="spacer"></span>
+    {{if .User}}<span class="who">{{.User}}</span>{{end}}
+    <form method="post" action="/_fleet/logout">
+      <button class="btn quiet" type="submit">Sign out</button>
+    </form>
   </header>
+
+  <h1>Your machines</h1>
+  <p class="lede">Open one to drive its dsh from here.</p>
 
   {{if .Nodes}}
   <ul>
     {{range .Nodes}}
     <li>
-      <a class="{{.Status}}{{if .Current}} current{{end}}" href="/_fleet/select/{{.ID}}">
+      <a class="card {{.Status}}{{if .Current}} here{{end}}" href="/_fleet/select/{{.ID}}">
         <span class="top">
-          <span class="dot" aria-hidden="true"></span>
+          <span class="dot {{.Status}}" aria-hidden="true"></span>
           <span class="name">{{.Label}}</span>
-          {{if .Current}}<span class="badge">current</span>{{end}}
-          <span class="state">{{.Status}}</span>
+          {{if .Current}}<span class="tag here">open</span>{{end}}
+          {{if eq .Status "revoked"}}<span class="tag warn">revoked</span>{{end}}
+          <span class="state">{{if eq .Status "online"}}online{{else}}seen {{.LastSeen}}{{end}}</span>
         </span>
         <span class="meta">
+          <span class="mono">{{.ID}}</span>
           {{if .DSH}}<span>dsh {{.DSH}}</span>{{end}}
           {{if .Platform}}<span>{{.Platform}}</span>{{end}}
           {{if .Agents}}<span>agents {{.Agents}}</span>{{end}}
           {{if .Tools}}<span>{{.Tools}} tools</span>{{end}}
           {{if .Failed}}<span class="bad">{{.Failed}} plugin(s) failed</span>{{end}}
-          <span>seen {{.LastSeen}}</span>
         </span>
       </a>
     </li>
@@ -104,14 +95,16 @@ code {
   </ul>
   {{else}}
   <p class="empty">
-    No machines registered yet.<br>
-    Run <code>dshf node add &lt;id&gt;</code> to mint a token.
+    No machines yet.<br>
+    Register one to mint its token:
+    <code>dshf node add &lt;id&gt;</code>
   </p>
   {{end}}
 
-  <p class="hint">
-    Opening a machine gives it this whole address, so bookmark
-    <code>{{.Prefix}}/</code> to come back here and switch.
+  <p class="tip">
+    A machine you open takes over this whole address — that is what lets its own
+    UI work unchanged. The <strong>dsh-fleet</strong> button in the corner of that
+    page brings you back here, switches machines, and signs you out.
   </p>
 </div>
 </body>

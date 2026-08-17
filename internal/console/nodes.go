@@ -36,19 +36,19 @@ type NodesPage struct {
 // projected here rather than in the template so a node running a newer plugin,
 // with keys this build has never heard of, still renders.
 type nodeView struct {
-	ID       string
-	Label    string
-	Status   string // online | offline | never-seen | revoked
-	DSH      string
-	Platform string
-	LastSeen string
-	Agents   string
-	Tools    int
-	Failed   int
-	Plugins  int
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Status   string `json:"status"` // online | offline | never-seen | revoked
+	DSH      string `json:"dsh,omitempty"`
+	Platform string `json:"platform,omitempty"`
+	LastSeen string `json:"lastSeen"`
+	Agents   string `json:"agents,omitempty"`
+	Tools    int    `json:"tools,omitempty"`
+	Failed   int    `json:"failed,omitempty"`
+	Plugins  int    `json:"plugins,omitempty"`
 	// Current marks the machine this browser is already driving, so the page
 	// orients someone who came back to switch.
-	Current bool
+	Current bool `json:"current"`
 }
 
 // snapshot is the subset of a node's telemetry this page displays. Every field
@@ -94,9 +94,9 @@ func (p *NodesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Home sends a bare visit to the reserved prefix on to the chooser.
 //
-// Once a machine is selected it owns the origin root, so this short URL is the
-// only way back that does not involve remembering a longer one. On a phone
-// that difference decides whether the console is usable at all.
+// The overlay injected into a machine's pages is how anyone actually gets
+// back; this short URL is the fallback for a browser that ran the page with
+// scripting off, or a session that expired while a machine was open.
 func Home(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, PathConsole, http.StatusSeeOther)
 }

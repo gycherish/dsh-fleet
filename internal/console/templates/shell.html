@@ -1,0 +1,65 @@
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<style>
+/* One palette for every console page, and for the overlay injected into a
+   machine's own pages. Kept in sync by hand — there is not enough of it to
+   justify a build step. */
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --sunk: #eef2f7;
+  --ink: #16233a; --muted: #64758f; --rule: #dde3ec; --hover: #f2f5f9;
+  --accent: #1f5fa8; --on-accent: #ffffff;
+  --ok: #2e7259; --warn: #a96f1c; --off: #94a2b4; --danger: #a4322c;
+  --shadow: rgba(16, 32, 56, .10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d141e; --surface: #182231; --sunk: #121b27;
+    --ink: #e3eaf4; --muted: #93a3b9; --rule: #2c3b52; --hover: #1f2b3d;
+    --accent: #7db0ea; --on-accent: #0d141e;
+    --ok: #66bb96; --warn: #d5a55e; --off: #6b7a8c; --danger: #e08b84;
+    --shadow: rgba(0, 0, 0, .40);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  padding:
+    calc(env(safe-area-inset-top) + 1.25rem)
+    calc(env(safe-area-inset-right) + 1rem)
+    calc(env(safe-area-inset-bottom) + 2rem)
+    calc(env(safe-area-inset-left) + 1rem);
+}
+a { color: var(--accent); }
+code, .mono {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  font-size: .86em;
+}
+
+/* The product mark, so both pages open the same way. */
+.brand { display: flex; align-items: center; gap: .5rem; font-weight: 650; letter-spacing: -.01em; }
+.brand .mark {
+  width: 1.4rem; height: 1.4rem; border-radius: 6px; flex: none;
+  background: var(--accent); color: var(--on-accent);
+  display: grid; place-items: center; font-size: .7rem; font-weight: 700;
+}
+
+/* Status dots, shared with the overlay. */
+.dot { width: .5rem; height: .5rem; border-radius: 50%; flex: none; background: var(--off); }
+.dot.online { background: var(--ok); }
+.dot.revoked, .dot.never-seen { background: var(--warn); }
+
+.btn {
+  font: inherit; font-size: .85rem; padding: .45rem .8rem; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+  text-decoration: none; cursor: pointer; display: inline-block;
+}
+.btn:hover, .btn:focus-visible { border-color: var(--accent); outline: none; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+.btn.quiet { border-color: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+</style>
+{{end}}

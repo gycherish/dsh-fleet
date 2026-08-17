@@ -28,7 +28,8 @@ const (
 	PathLogout  = Prefix + "/logout"
 	PathConsole = Prefix + "/console"
 	PathSelect  = Prefix + "/select/"
-	PathNodeAPI = Prefix + "/nodes"
+	PathState   = Prefix + "/state"
+	PathOverlay = Prefix + "/overlay.js"
 )
 
 // SessionCookie is the browser session cookie name.

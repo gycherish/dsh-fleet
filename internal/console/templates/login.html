@@ -1,60 +1,39 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+{{template "head" .}}
 <title>Sign in · dsh-fleet</title>
 <style>
-:root {
-  --bg: #f4f6f9; --card: #ffffff; --ink: #16233a; --muted: #64758f;
-  --rule: #d3dbe6; --accent: #1f5fa8; --danger: #a63f35;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1520; --card: #151e2b; --ink: #dee6f1; --muted: #8496ae;
-    --rule: #27364b; --accent: #74aae8; --danger: #e08b80;
-  }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; min-height: 100dvh; display: grid; place-items: center;
-  padding: 1.5rem calc(1.5rem + env(safe-area-inset-right)) 1.5rem calc(1.5rem + env(safe-area-inset-left));
-  background: var(--bg); color: var(--ink);
-  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-}
-main { width: 100%; max-width: 22rem; }
-h1 {
-  font-size: 1.35rem; letter-spacing: -.01em; margin: 0 0 .25rem;
-}
-.sub { color: var(--muted); font-size: .9rem; margin: 0 0 1.5rem; }
+body { display: grid; place-items: center; }
+main { width: 100%; max-width: 21rem; }
+.brand { font-size: 1.05rem; margin-bottom: 1.5rem; justify-content: center; }
 form {
-  background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
-  padding: 1.25rem; display: flex; flex-direction: column; gap: .9rem;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 1.4rem; display: flex; flex-direction: column; gap: .9rem;
+  box-shadow: 0 1px 2px var(--shadow), 0 10px 30px var(--shadow);
 }
-label { display: flex; flex-direction: column; gap: .35rem; font-size: .82rem; color: var(--muted); }
+h1 { font-size: 1.05rem; margin: 0; }
+.sub { color: var(--muted); font-size: .85rem; margin: -.55rem 0 .2rem; }
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .78rem; color: var(--muted); }
 input {
-  font: inherit; padding: .6rem .7rem; border-radius: 6px;
-  border: 1px solid var(--rule); background: var(--bg); color: var(--ink);
+  font: inherit; padding: .6rem .7rem; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--sunk); color: var(--ink);
 }
 input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-button {
-  font: inherit; font-weight: 600; padding: .65rem; border: 0; border-radius: 6px;
-  background: var(--accent); color: #fff; cursor: pointer;
-}
-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.btn.primary { padding: .6rem; text-align: center; }
 .error {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border: 1px solid var(--danger); color: var(--danger);
-  border-radius: 6px; padding: .5rem .7rem; font-size: .85rem;
+  border-radius: 8px; padding: .5rem .7rem; font-size: .82rem;
 }
 </style>
 </head>
 <body>
 <main>
-  <h1>dsh-fleet</h1>
-  <p class="sub">Sign in to reach your machines.</p>
+  <p class="brand"><span class="mark" aria-hidden="true">dF</span> dsh-fleet</p>
   <form method="post" action="/_fleet/login" autocomplete="on">
+    <h1>Sign in</h1>
+    <p class="sub">One console for every machine you run dsh on.</p>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <input type="hidden" name="next" value="{{.Next}}">
     <label>Username
@@ -63,7 +42,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     <label>Password
       <input name="password" type="password" autocomplete="current-password" required>
     </label>
-    <button type="submit">Sign in</button>
+    <button class="btn primary" type="submit">Sign in</button>
   </form>
 </main>
 </body>
