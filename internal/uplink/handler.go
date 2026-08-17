@@ -58,6 +58,9 @@ type Handler struct {
 	Revoked  error
 	// Foreign reports a machine id already held by another account.
 	Foreign error
+	// OwnToken reports a machine registered with a token of its own, which a
+	// user token therefore cannot claim.
+	OwnToken error
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +98,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cancelAuth()
 	switch {
 	case err == nil:
+	case h.OwnToken != nil && errors.Is(err, h.OwnToken):
+		// The credential was fine and the name is taken by a machine that
+		// authenticates itself. Saying "another account" here would send someone
+		// looking for a colleague to blame.
+		h.Log.Warn("uplink: machine is registered with its own token",
+			"node", hello.NodeID, "user", hello.Username)
+		_ = ws.Close(websocket.StatusCode(envelope.CloseUnknownNode),
+			"that machine name uses a machine token; drop the username, or pick another name")
+		return
 	case h.Foreign != nil && errors.Is(err, h.Foreign):
 		// Worth its own message: the credential was good and the name was taken,
 		// which is a different fix from "your token is wrong".

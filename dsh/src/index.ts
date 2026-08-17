@@ -22,6 +22,7 @@
  */
 
 import { createRequire } from 'node:module'
+import { hostname } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Uplink } from './uplink.ts'
@@ -57,7 +58,7 @@ export const inject = ['webRuntime']
 export interface Config {
   /** Control-plane uplink endpoint, `ws://` or `wss://`. Empty stays offline. */
   url: string
-  /** This machine's name in the console. */
+  /** This machine's name in the console. Empty takes the hostname. */
   nodeId: string
   /**
    * Console account this token belongs to.
@@ -111,7 +112,7 @@ export const Config: z<Config> = z.object({
     .description('Control-plane uplink, e.g. wss://fleet.example.com/uplink. Leave empty to stay offline.')
     .default(''),
   nodeId: z.string()
-    .description('This machine\'s name in the console, e.g. laptop. Any name you have not used yet.')
+    .description('This machine\'s name in the console. Leave empty to use its hostname.')
     .default(''),
   username: z.string()
     .description('Your console account. With it the machine enrols itself; leave empty to use a machine token from `dshf node add`.')
@@ -148,6 +149,42 @@ function setting(value: string | undefined, envVar: string): string {
   return (process.env[envVar] ?? '').trim()
 }
 
+/**
+ * This machine's name, taken from its hostname.
+ *
+ * Asking someone to invent a name for the machine they are sitting at is a
+ * field they have to think about for no gain — the machine already knows what
+ * it is called. Configuration still wins, because a hostname is not always the
+ * name a fleet wants to see.
+ *
+ * The id reaches a URL (`/_fleet/select/<id>`) and a primary key, so it is
+ * reduced to the characters both handle: a hostname may carry dots, a domain
+ * suffix, and capitals that would otherwise make two spellings of one machine.
+ *
+ * @returns a usable id, or an empty string if the hostname yields nothing.
+ */
+export function machineName(): string {
+  let raw: string
+  try {
+    raw = hostname()
+  } catch {
+    // Some sandboxes refuse it; the caller then reports the field as missing.
+    return ''
+  }
+  return sanitiseName(raw)
+}
+
+/** Reduce a hostname to an id a URL and a primary key both accept. */
+export function sanitiseName(raw: string): string {
+  return raw
+    .split('.')[0]                    // `laptop.local` is the same machine as `laptop`
+    ?.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)                     // one DNS label, which is more than enough
+    ?? ''
+}
+
 /** What the uplink needs to exist, resolved across both sources. */
 interface Connection {
   url: string
@@ -170,7 +207,8 @@ interface Connection {
 function connection(config: Config): Connection | undefined {
   const resolved = {
     url: setting(config.url, 'DSH_FLEET_URL'),
-    nodeId: setting(config.nodeId, 'DSH_FLEET_NODE_ID'),
+    // Falls back to the hostname: the machine already knows its own name.
+    nodeId: setting(config.nodeId, 'DSH_FLEET_NODE_ID') || machineName(),
     token: setting(config.token, 'DSH_FLEET_TOKEN'),
     // Optional: its presence chooses self-enrolment over a machine token.
     username: setting(config.username, 'DSH_FLEET_USERNAME'),

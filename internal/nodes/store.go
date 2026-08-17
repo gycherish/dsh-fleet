@@ -109,6 +109,15 @@ func (s *Store) Rotate(ctx context.Context, id, label string) (string, error) {
 // ErrForeign reports a machine id already claimed by another account.
 var ErrForeign = errors.New("nodes: that machine id belongs to another account")
 
+// ErrHasOwnToken reports a machine registered with `dshf node add`, which
+// authenticates with a token of its own rather than a person's.
+//
+// Distinct from ErrForeign because the fix is different and the first version
+// of this told people the wrong one: "belongs to another account" sends someone
+// looking for a colleague to blame, when the answer is either to use that
+// machine's own token or to pick a different name.
+var ErrHasOwnToken = errors.New("nodes: that machine is registered with a machine token of its own")
+
 // EnsureOwned registers a machine to an account, or confirms it already is.
 //
 // This is the self-enrolment path: a machine that presents its owner's token
@@ -127,11 +136,29 @@ func (s *Store) EnsureOwned(ctx context.Context, id string, ownerID uuid.UUID, l
 		return fmt.Errorf("nodes: cannot enrol %q: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		// The row exists and the WHERE excluded it: either a different owner, or
-		// a machine still holding a token of its own.
-		return ErrForeign
+		// The row exists and the WHERE excluded it. Which of the two reasons it
+		// was decides what the operator should do about it, so find out rather
+		// than reporting the more alarming one.
+		return s.whyNotClaimable(ctx, id)
 	}
 	return nil
+}
+
+// whyNotClaimable explains a refused claim on an existing machine.
+func (s *Store) whyNotClaimable(ctx context.Context, id string) error {
+	const q = `SELECT token_hash IS NOT NULL FROM nodes WHERE id = $1`
+	var ownToken bool
+	switch err := s.pool.QueryRow(ctx, q, id).Scan(&ownToken); {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Raced with a delete; the next attempt creates it.
+		return ErrNotFound
+	case err != nil:
+		return fmt.Errorf("nodes: cannot read %q: %w", id, err)
+	}
+	if ownToken {
+		return ErrHasOwnToken
+	}
+	return ErrForeign
 }
 
 // Authenticate verifies a presented token against the stored hash.
