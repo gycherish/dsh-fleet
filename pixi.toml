@@ -49,6 +49,24 @@ cwd = "test/e2e"
 description = "Run the mobile-viewport checks against a running control plane."
 env = { PLAYWRIGHT_BROWSERS_PATH = ".devdata/playwright" }
 
+# Interactive: open a real window emulating a handset and click around in it.
+# WebKit for the iPhone profile and Chromium for the Pixel, which is what those
+# devices actually run — so a Safari-only layout bug shows up here.
+
+[tasks.phone]
+args = [{ arg = "url", default = "http://127.0.0.1:8080" }]
+cmd = "pnpm exec playwright open --device='iPhone 14' {{ url }}"
+cwd = "test/e2e"
+description = "Open the console in an emulated iPhone (WebKit)."
+env = { PLAYWRIGHT_BROWSERS_PATH = ".devdata/playwright" }
+
+[tasks.phone-android]
+args = [{ arg = "url", default = "http://127.0.0.1:8080" }]
+cmd = "pnpm exec playwright open --device='Pixel 7' {{ url }}"
+cwd = "test/e2e"
+description = "Open the console in an emulated Pixel (Chromium)."
+env = { PLAYWRIGHT_BROWSERS_PATH = ".devdata/playwright" }
+
 # ── local PostgreSQL for development ─────────────────────────────────────────
 #
 # Port 5433, not 5432, so this never collides with a system PostgreSQL. Trust
@@ -88,3 +106,4 @@ description = "Open a psql shell against the development database."
 # First-time setup, in this order:
 #   pixi run pg-init && pixi run pg-start && pixi run pg-create
 # Afterwards only pg-start / pg-stop are needed.
+
