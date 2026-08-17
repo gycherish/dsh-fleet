@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { openMachine } from './helpers.ts'
+
 /**
  * The settings pages, which are the ones the privileged-access tier decides.
  *
@@ -13,10 +15,6 @@ import { expect, test } from '@playwright/test'
  * So this asserts the reads land and the writes do not, through the real UI.
  */
 
-const NODE_ID = process.env.DSHF_NODE ?? 'devbox'
-const USERNAME = process.env.DSHF_USER ?? 'admin'
-const PASSWORD = process.env.DSHF_PASSWORD ?? 'dev-only-password'
-
 /** dsh greets a fresh browser with a modal that swallows every other click. */
 async function signInAndOpen(page: import('@playwright/test').Page): Promise<string[]> {
   const failures: string[] = []
@@ -26,12 +24,7 @@ async function signInAndOpen(page: import('@playwright/test').Page): Promise<str
     }
   })
 
-  await page.goto('/_fleet/console')
-  await page.getByLabel(/username/i).fill(USERNAME)
-  await page.getByLabel(/password/i).fill(PASSWORD)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await page.goto(`/_fleet/select/${NODE_ID}`)
-  await page.waitForLoadState('networkidle')
+  await openMachine(page)
 
   const notice = page.getByRole('button', { name: /^Continue$/ })
   if (await notice.count()) await notice.first().click()

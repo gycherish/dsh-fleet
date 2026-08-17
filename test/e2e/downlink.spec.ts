@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { openMachine } from './helpers.ts'
+
 /**
  * The two event downlinks, checked as the browser actually opens them.
  *
@@ -10,16 +12,8 @@ import { expect, test } from '@playwright/test'
  * updates: the worst kind of broken, because it looks fine.
  */
 
-const NODE_ID = process.env.DSHF_NODE ?? 'devbox'
-const USERNAME = process.env.DSHF_USER ?? 'admin'
-const PASSWORD = process.env.DSHF_PASSWORD ?? 'dev-only-password'
-
 test('both event downlinks open through the control plane', async ({ page }) => {
-  await page.goto('/_fleet/console')
-  await page.getByLabel(/username/i).fill(USERNAME)
-  await page.getByLabel(/password/i).fill(PASSWORD)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await page.goto(`/_fleet/select/${NODE_ID}`)
+  await openMachine(page)
 
   const result = await page.evaluate(async () => {
     const open = (path: string) => new Promise<string>((resolve) => {
