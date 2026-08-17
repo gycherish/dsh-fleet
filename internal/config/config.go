@@ -36,6 +36,9 @@ type Config struct {
 	// plain HTTP serves a dsh UI whose settings pages fail outright.
 	TLSCert string
 	TLSKey  string
+	// PrivilegedAccess is how much of dsh's loopback-pinned method set the
+	// browser plane may reach: none, read, or full. Defaults to read.
+	PrivilegedAccess string
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 }
@@ -53,14 +56,15 @@ var ErrMissing = errors.New("config: required environment variable is not set")
 // worse than one that refuses to start.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:   os.Getenv("DSHF_DATABASE_URL"),
-		Listen:        envOr("DSHF_LISTEN", ":8080"),
-		MigrationsDir: envOr("DSHF_MIGRATIONS_DIR", "deploy/migrations"),
-		AdminUser:     envOr("DSHF_ADMIN_USER", "admin"),
-		AdminPassword: os.Getenv("DSHF_ADMIN_PASSWORD"),
-		TLSCert:       os.Getenv("DSHF_TLS_CERT"),
-		TLSKey:        os.Getenv("DSHF_TLS_KEY"),
-		LogLevel:      envOr("DSHF_LOG_LEVEL", "info"),
+		DatabaseURL:      os.Getenv("DSHF_DATABASE_URL"),
+		Listen:           envOr("DSHF_LISTEN", ":8080"),
+		MigrationsDir:    envOr("DSHF_MIGRATIONS_DIR", "deploy/migrations"),
+		AdminUser:        envOr("DSHF_ADMIN_USER", "admin"),
+		AdminPassword:    os.Getenv("DSHF_ADMIN_PASSWORD"),
+		TLSCert:          os.Getenv("DSHF_TLS_CERT"),
+		TLSKey:           os.Getenv("DSHF_TLS_KEY"),
+		PrivilegedAccess: envOr("DSHF_PRIVILEGED_ACCESS", "read"),
+		LogLevel:         envOr("DSHF_LOG_LEVEL", "info"),
 	}
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {

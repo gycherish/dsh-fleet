@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gycherish/dsh-fleet/internal/uplink"
@@ -32,10 +33,10 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// The privileged set is the boundary this project owns, because a custom
-// carrier does not pass through dsh's own loopback pin. A silent gap here is
-// a remote credential read.
-func TestPrivilegedSetCoversTheLoopbackPinnedMethods(t *testing.T) {
+// Every method dsh pins to loopback must land in exactly one tier here. A
+// method that falls out of both is forwarded unconditionally, which for this
+// set means a remote credential write nobody decided to allow.
+func TestEveryPinnedMethodIsTiered(t *testing.T) {
 	pinned := []string{
 		"host.pickDirectory", "host.openPath",
 		"settings.describe", "settings.openDocument", "settings.update",
@@ -44,16 +45,71 @@ func TestPrivilegedSetCoversTheLoopbackPinnedMethods(t *testing.T) {
 		"agentPreset.read", "agentPreset.copy", "agentPreset.openDocument", "agentPreset.remove",
 	}
 	for _, method := range pinned {
-		if _, ok := privileged[method]; !ok {
-			t.Errorf("%s is loopback-pinned by dsh but not gated here", method)
+		_, isRead := privilegedRead[method]
+		_, isWrite := privilegedWrite[method]
+		if isRead == isWrite {
+			t.Errorf("%s must be in exactly one tier (read=%t write=%t)", method, isRead, isWrite)
 		}
 	}
 	// These are deliberately ordinary: the roster carries only ids and trust,
 	// and choosing a preset grants nothing session.create already did not.
 	for _, method := range []string{"agentPreset.list", "agentPreset.select", "session.prompt", "host.listDirectory"} {
-		if _, ok := privileged[method]; ok {
+		if _, r := privilegedRead[method]; r {
 			t.Errorf("%s should not be gated", method)
 		}
+		if _, w := privilegedWrite[method]; w {
+			t.Errorf("%s should not be gated", method)
+		}
+	}
+}
+
+// Nothing that can carry or reveal a secret value may sit in the read tier: it
+// is on by default, so a mistake there is a default-on disclosure.
+func TestReadTierHoldsNothingThatWrites(t *testing.T) {
+	for method := range privilegedRead {
+		for _, verb := range []string{".set", ".unset", ".update", ".replace", ".mutate", ".copy", ".remove", ".openDocument", ".pickDirectory", ".openPath", ".discoverModels"} {
+			if strings.HasSuffix(method, verb) {
+				t.Errorf("%s looks like a write but sits in the read tier", method)
+			}
+		}
+	}
+}
+
+func TestAccessLevels(t *testing.T) {
+	cases := []struct {
+		level       Access
+		method      string
+		wantRefused bool
+	}{
+		{AccessNone, "settings.describe", true},
+		{AccessNone, "credentials.set", true},
+		{AccessRead, "settings.describe", false},
+		{AccessRead, "credentials.describe", false},
+		{AccessRead, "agentPreset.read", false},
+		{AccessRead, "credentials.set", true},
+		{AccessRead, "settings.update", true},
+		{AccessRead, "llm.discoverModels", true},
+		{AccessRead, "host.openPath", true},
+		{AccessFull, "credentials.set", false},
+		{AccessFull, "host.openPath", false},
+		{AccessRead, "session.prompt", false},
+	}
+	for _, tc := range cases {
+		if refused, _ := tc.level.refuse(tc.method); refused != tc.wantRefused {
+			t.Errorf("%s.refuse(%s) = %t, want %t", tc.level, tc.method, refused, tc.wantRefused)
+		}
+	}
+}
+
+func TestParseAccess(t *testing.T) {
+	for input, want := range map[string]Access{"": AccessRead, "none": AccessNone, "READ": AccessRead, " full ": AccessFull} {
+		got, err := ParseAccess(input)
+		if err != nil || got != want {
+			t.Errorf("ParseAccess(%q) = (%q, %v), want %q", input, got, err, want)
+		}
+	}
+	if _, err := ParseAccess("everything"); err == nil {
+		t.Error("an unknown level must fail loud rather than defaulting")
 	}
 }
 
@@ -70,34 +126,55 @@ func (a *recordingAudit) RecordDecision(node, ns, path string, allowed bool, sta
 	a.calls++
 }
 
-func TestPrivilegedMethodIsRefusedAndAudited(t *testing.T) {
+func TestPrivilegedWriteIsRefusedAndAudited(t *testing.T) {
 	audit := &recordingAudit{}
 	h := &Handler{
 		Registry:   uplink.NewRegistry(),
 		Log:        discardLogger(),
 		Audit:      audit,
 		SelectNode: func(*http.Request) string { return "devbox" },
+		// Privileged left at its zero value: the default must refuse writes.
 	}
 	// The registry is empty, so reaching the node would fail with 502. A 403
 	// therefore proves the gate ran before any connection lookup.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/credentials.describe", nil))
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/credentials.set", nil))
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", w.Code)
 	}
-	if audit.calls != 1 || audit.allowed || audit.path != "credentials.describe" {
-		t.Fatalf("audit = %+v, want one denied decision for credentials.describe", audit)
+	if audit.calls != 1 || audit.allowed || audit.path != "credentials.set" {
+		t.Fatalf("audit = %+v, want one denied decision for credentials.set", audit)
 	}
 }
 
-func TestAllowPrivilegedOpensTheGate(t *testing.T) {
+// The default has to let the settings pages load. Refusing the reads was the
+// original behaviour and it broke them for no protection: dsh redacts secret
+// values from every layer it returns.
+func TestDefaultForwardsPrivilegedReads(t *testing.T) {
 	h := &Handler{
-		Registry:        uplink.NewRegistry(),
-		Log:             discardLogger(),
-		Audit:           &recordingAudit{},
-		SelectNode:      func(*http.Request) string { return "devbox" },
-		AllowPrivileged: true,
+		Registry:   uplink.NewRegistry(),
+		Log:        discardLogger(),
+		Audit:      &recordingAudit{},
+		SelectNode: func(*http.Request) string { return "devbox" },
+	}
+	for _, method := range []string{"settings.describe", "credentials.describe", "agentPreset.read"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("POST", "/api/"+method, nil))
+		// 502 means it passed the gate and only then found no node.
+		if w.Code != http.StatusBadGateway {
+			t.Errorf("%s: status = %d, want 502 (allowed, node absent)", method, w.Code)
+		}
+	}
+}
+
+func TestFullAccessOpensTheGate(t *testing.T) {
+	h := &Handler{
+		Registry:   uplink.NewRegistry(),
+		Log:        discardLogger(),
+		Audit:      &recordingAudit{},
+		SelectNode: func(*http.Request) string { return "devbox" },
+		Privileged: AccessFull,
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/credentials.describe", nil))

@@ -7,6 +7,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,30 +19,88 @@ import (
 	"github.com/gycherish/dsh-fleet/pkg/envelope"
 )
 
-// privileged names the dsh methods that dsh's own browser carrier pins to
-// loopback.
+// Access is how much of dsh's loopback-pinned method set this control plane
+// forwards.
 //
-// A custom carrier does not pass through that carrier's `/api` route, so the
-// pin is simply absent here and this project owns the boundary instead.
-// Reading a preset is reconnaissance about which plugins a session runs;
-// openPath and pickDirectory drive the node's desktop; the configuration plane
-// exposes and mutates credentials. None of that should be reachable from a
-// phone by default.
-var privileged = map[string]struct{}{
+// dsh pins that set inside its own browser carrier, which a custom carrier
+// does not pass through — so the boundary is this project's to draw, and one
+// boolean drew it too coarsely. Refusing the reads broke the settings pages
+// outright while protecting nothing: dsh redacts secret-role values from every
+// layer of `settings.describe`, and `credentials.describe` returns
+// value-free views.
+type Access string
+
+const (
+	// AccessNone refuses the whole pinned set.
+	AccessNone Access = "none"
+	// AccessRead forwards the reads and refuses the writes. The default.
+	AccessRead Access = "read"
+	// AccessFull forwards everything, including credential writes and the
+	// methods that drive the node's own desktop.
+	AccessFull Access = "full"
+)
+
+// ParseAccess reads a configured level, defaulting to AccessRead.
+func ParseAccess(value string) (Access, error) {
+	switch Access(strings.ToLower(strings.TrimSpace(value))) {
+	case "":
+		return AccessRead, nil
+	case AccessNone:
+		return AccessNone, nil
+	case AccessRead:
+		return AccessRead, nil
+	case AccessFull:
+		return AccessFull, nil
+	default:
+		return "", fmt.Errorf("proxy: privileged access must be none, read or full, got %q", value)
+	}
+}
+
+// privilegedRead names pinned methods that only report state.
+//
+// None of them returns a secret: dsh keeps secret-role values out of every
+// `settings.describe` layer, and `credentials.describe` reports only whether a
+// reference is configured, where it comes from, and whether it is writable.
+// They do disclose how a machine is set up, which is why AccessNone exists.
+var privilegedRead = map[string]struct{}{
+	"settings.describe":    {},
+	"credentials.describe": {},
+	"agentPreset.read":     {},
+}
+
+// privilegedWrite names pinned methods that change something or act on the
+// node's own desktop.
+//
+// `llm.discoverModels` is here despite writing nothing: the caller supplies an
+// API key in its payload, so allowing it means allowing a secret to be sent
+// from wherever the browser is.
+var privilegedWrite = map[string]struct{}{
 	"host.pickDirectory":       {},
 	"host.openPath":            {},
-	"settings.describe":        {},
 	"settings.openDocument":    {},
 	"settings.update":          {},
 	"settings.replace":         {},
 	"settings.mutate":          {},
-	"credentials.describe":     {},
 	"credentials.set":          {},
 	"credentials.unset":        {},
-	"agentPreset.read":         {},
 	"agentPreset.copy":         {},
 	"agentPreset.openDocument": {},
 	"agentPreset.remove":       {},
+	"llm.discoverModels":       {},
+}
+
+// refuse reports whether this level withholds a method, and why.
+func (a Access) refuse(method string) (bool, string) {
+	if a == AccessFull {
+		return false, ""
+	}
+	if _, ok := privilegedWrite[method]; ok {
+		return true, "privileged write withheld by control-plane policy (DSHF_PRIVILEGED_ACCESS=full to allow)"
+	}
+	if _, ok := privilegedRead[method]; ok && a == AccessNone {
+		return true, "privileged read withheld by control-plane policy (DSHF_PRIVILEGED_ACCESS=read to allow)"
+	}
+	return false, ""
 }
 
 // Auditor records what the gate decided. Bodies are never passed to it: they
@@ -66,9 +125,9 @@ type Handler struct {
 	// NoSelection handles a request that named no node, typically by sending
 	// the browser to the chooser.
 	NoSelection http.Handler
-	// AllowPrivileged opens the method set above. It exists so a single-user
-	// deployment can opt in deliberately; it must never default to true.
-	AllowPrivileged bool
+	// Privileged is how much of the pinned set to forward. The zero value is
+	// treated as AccessRead, which is what a fresh Handler should do.
+	Privileged Access
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -90,10 +149,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// leaks liveness for methods the caller may not use, and — worse — a denied
 	// attempt against an offline machine would leave no audit record at all.
 	ns, method := classify(rest)
-	if ns == envelope.NsDSH && !h.AllowPrivileged {
-		if _, blocked := privileged[method]; blocked {
-			h.record(nodeID, ns, method, false, http.StatusForbidden, "privileged method blocked by control-plane policy")
-			http.Error(w, "method is not available over the fleet carrier", http.StatusForbidden)
+	if ns == envelope.NsDSH {
+		level := h.Privileged
+		if level == "" {
+			level = AccessRead
+		}
+		if blocked, why := level.refuse(method); blocked {
+			h.record(nodeID, ns, method, false, http.StatusForbidden, why)
+			http.Error(w, why, http.StatusForbidden)
 			return
 		}
 	}

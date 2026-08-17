@@ -191,13 +191,19 @@ func serve(_ []string) error {
 	// The node's application owns the origin root because its client addresses
 	// `/api/...` and its assets absolutely. Anything the control plane needs
 	// for itself lives under console.Prefix, out of that application's way.
+	access, err := proxy.ParseAccess(cfg.PrivilegedAccess)
+	if err != nil {
+		return err
+	}
+	logger.Info("privileged access", "level", string(access))
+
 	mux.Handle("/", guard.Require(&proxy.Handler{
-		Registry:        registry,
-		Log:             logger,
-		Audit:           auditor,
-		AllowPrivileged: false,
-		SelectNode:      console.SelectedNode,
-		NoSelection:     http.HandlerFunc(noMachineSelected),
+		Registry:    registry,
+		Log:         logger,
+		Audit:       auditor,
+		Privileged:  access,
+		SelectNode:  console.SelectedNode,
+		NoSelection: http.HandlerFunc(noMachineSelected),
 	}))
 
 	server := &http.Server{
