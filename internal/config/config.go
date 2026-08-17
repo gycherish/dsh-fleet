@@ -28,9 +28,20 @@ type Config struct {
 	// only while the users table is empty.
 	AdminUser     string
 	AdminPassword string
+	// TLSCert and TLSKey enable HTTPS when both are set.
+	//
+	// This is closer to required than optional. Browsers gate
+	// `crypto.randomUUID` and friends behind a secure context, and only HTTPS
+	// and loopback qualify — so a control plane reached at a LAN address over
+	// plain HTTP serves a dsh UI whose settings pages fail outright.
+	TLSCert string
+	TLSKey  string
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 }
+
+// ServesTLS reports whether both halves of a certificate pair are configured.
+func (c *Config) ServesTLS() bool { return c.TLSCert != "" && c.TLSKey != "" }
 
 // ErrMissing reports a required variable that was unset or blank.
 var ErrMissing = errors.New("config: required environment variable is not set")
@@ -47,7 +58,13 @@ func Load() (*Config, error) {
 		MigrationsDir: envOr("DSHF_MIGRATIONS_DIR", "deploy/migrations"),
 		AdminUser:     envOr("DSHF_ADMIN_USER", "admin"),
 		AdminPassword: os.Getenv("DSHF_ADMIN_PASSWORD"),
+		TLSCert:       os.Getenv("DSHF_TLS_CERT"),
+		TLSKey:        os.Getenv("DSHF_TLS_KEY"),
 		LogLevel:      envOr("DSHF_LOG_LEVEL", "info"),
+	}
+
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		return nil, errors.New("config: set both DSHF_TLS_CERT and DSHF_TLS_KEY, or neither")
 	}
 
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {

@@ -74,6 +74,7 @@ type Conn struct {
 
 	mu      sync.Mutex
 	pending map[string]*pending
+	bridges map[string]*Bridge
 	closed  bool
 
 	nextID   uint64
@@ -95,8 +96,93 @@ func newConn(ws *websocket.Conn, nodeID string, caps []string, sink TelemetrySin
 		log:      log.With("node", nodeID),
 		sink:     sink,
 		pending:  map[string]*pending{},
+		bridges:  map[string]*Bridge{},
 		lastPong: time.Now(),
 		done:     make(chan struct{}),
+	}
+}
+
+/*
+Bridge is one browser WebSocket relayed to the node's own server.
+
+Inbound messages arrive on Messages; the channel closes when either end hangs
+up. Send is safe from one goroutine at a time, which is what the single
+browser reader provides.
+*/
+type Bridge struct {
+	conn *Conn
+	id   string
+	up   chan string
+	// Bounded for the same reason response chunks are: one stalled reader
+	// costs slack rather than the whole multiplexed connection.
+	Messages chan string
+	once     sync.Once
+}
+
+// Send relays one message from the browser toward the node.
+func (b *Bridge) Send(ctx context.Context, text string) error {
+	return b.conn.write(ctx, envelope.WsMsg{
+		T: envelope.TWsMsg, ID: b.id,
+		Body: envelope.NewPayload([]byte(text), true),
+	})
+}
+
+// Close tears the bridge down; calling it twice is a no-op.
+func (b *Bridge) Close(code int, reason string) {
+	b.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = b.conn.write(ctx, envelope.WsClose{T: envelope.TWsClose, ID: b.id, Code: code, Reason: reason})
+		b.conn.dropBridge(b.id)
+	})
+}
+
+// OpenWS asks the node to dial one WebSocket and bridge it back.
+//
+// It returns once the node reports the socket connected, so a caller that has
+// already accepted the browser's upgrade knows whether it can keep it.
+func (c *Conn) OpenWS(ctx context.Context, path string, headers map[string]string) (*Bridge, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, errors.New("uplink: node is not connected")
+	}
+	c.nextID++
+	id := fmt.Sprintf("w%d", c.nextID)
+	bridge := &Bridge{conn: c, id: id, up: make(chan string, 1), Messages: make(chan string, streamBuffer)}
+	c.bridges[id] = bridge
+	c.mu.Unlock()
+
+	frame := envelope.WsOpen{T: envelope.TWsOpen, ID: id, Path: path, Headers: headers}
+	if err := c.write(ctx, frame); err != nil {
+		c.dropBridge(id)
+		return nil, err
+	}
+
+	select {
+	case <-ctx.Done():
+		bridge.Close(1001, "cancelled")
+		return nil, ctx.Err()
+	case <-c.done:
+		c.dropBridge(id)
+		return nil, errors.New("uplink: node disconnected")
+	case <-bridge.up:
+		return bridge, nil
+	case <-time.After(15 * time.Second):
+		bridge.Close(1011, "node did not open the socket")
+		return nil, errors.New("uplink: node did not open the socket in time")
+	}
+}
+
+func (c *Conn) dropBridge(id string) {
+	c.mu.Lock()
+	bridge := c.bridges[id]
+	delete(c.bridges, id)
+	c.mu.Unlock()
+	if bridge != nil {
+		// Closing wakes a reader blocked on Messages, which is how the browser
+		// side learns the far end went away.
+		close(bridge.Messages)
 	}
 }
 
@@ -282,6 +368,49 @@ func (c *Conn) dispatch(ctx context.Context, kind string, raw []byte) error {
 			}
 		}()
 
+	case envelope.TWsUp:
+		var f envelope.WsUp
+		if err := json.Unmarshal(raw, &f); err != nil {
+			return fmt.Errorf("uplink: bad ws.up frame: %w", err)
+		}
+		c.mu.Lock()
+		bridge := c.bridges[f.ID]
+		c.mu.Unlock()
+		if bridge != nil {
+			select {
+			case bridge.up <- f.Protocol:
+			default: // already reported
+			}
+		}
+
+	case envelope.TWsMsg:
+		var f envelope.WsMsg
+		if err := json.Unmarshal(raw, &f); err != nil {
+			return fmt.Errorf("uplink: bad ws.msg frame: %w", err)
+		}
+		c.mu.Lock()
+		bridge := c.bridges[f.ID]
+		c.mu.Unlock()
+		if bridge == nil {
+			return nil // closed while in flight
+		}
+		text, err := f.Body.Bytes()
+		if err != nil {
+			return fmt.Errorf("uplink: %w", err)
+		}
+		select {
+		case bridge.Messages <- string(text):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+	case envelope.TWsClose:
+		var f envelope.WsClose
+		if err := json.Unmarshal(raw, &f); err != nil {
+			return fmt.Errorf("uplink: bad ws.close frame: %w", err)
+		}
+		c.dropBridge(f.ID)
+
 	case envelope.TPong:
 		c.mu.Lock()
 		c.lastPong = time.Now()
@@ -373,7 +502,16 @@ func (c *Conn) shutdown() {
 		live = append(live, p)
 		delete(c.pending, id)
 	}
+	bridges := make([]*Bridge, 0, len(c.bridges))
+	for id, b := range c.bridges {
+		bridges = append(bridges, b)
+		delete(c.bridges, id)
+	}
 	c.mu.Unlock()
+
+	for _, b := range bridges {
+		close(b.Messages)
+	}
 
 	// Correlation ids are per-connection, so nothing in flight can survive a
 	// reconnect. Failing them now beats waiting for a reply that cannot come.

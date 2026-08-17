@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gycherish/dsh-fleet/internal/audit"
+	"github.com/gycherish/dsh-fleet/internal/certs"
 	"github.com/gycherish/dsh-fleet/internal/config"
 	"github.com/gycherish/dsh-fleet/internal/console"
 	"github.com/gycherish/dsh-fleet/internal/nodes"
@@ -58,6 +60,8 @@ func run(args []string) error {
 		return nodeCmd(args[1:])
 	case "user":
 		return userCmd(args[1:])
+	case "cert":
+		return certCmd(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(version)
 		return nil
@@ -80,6 +84,7 @@ Usage:
   dshf node revoke <id>            withdraw a machine's token
   dshf user add <name> [--admin]   create a console account
   dshf user ls                     list console accounts
+  dshf cert [--dir D] [host...]    mint a self-signed certificate for HTTPS
   dshf version                     print the build version
 
 Configuration is environment-only; see deploy/.env.example.
@@ -204,12 +209,37 @@ func serve(_ []string) error {
 		IdleTimeout: 120 * time.Second,
 	}
 
+	if cfg.ServesTLS() {
+		// HTTP/1.1 only, deliberately.
+		//
+		// ListenAndServeTLS negotiates HTTP/2 through ALPN by default, and Go's
+		// HTTP/2 server does not implement RFC 8441 Extended CONNECT — the only
+		// way to open a WebSocket over h2. Every event downlink is a WebSocket,
+		// so leaving h2 on breaks the product on any browser that negotiates it,
+		// which Safari does. A non-nil empty map is how net/http says "no ALPN
+		// protocols beyond http/1.1".
+		//
+		// The multiplexing lost matters far less than the sockets gained: this
+		// carries a handful of long-lived streams, not hundreds of small ones.
+		server.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
+	}
+
 	go purgeSessions(ctx, userStore, logger)
+
+	warnIfInsecureOrigin(cfg, logger)
 
 	errc := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", cfg.Listen, "publicUrl", cfg.PublicURL.String(), "version", version)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("listening",
+			"addr", cfg.Listen, "publicUrl", cfg.PublicURL.String(),
+			"tls", cfg.ServesTLS(), "version", version)
+		var err error
+		if cfg.ServesTLS() {
+			err = server.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errc <- err
 		}
 	}()
@@ -224,6 +254,26 @@ func serve(_ []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+// warnIfInsecureOrigin says so when the declared origin will break the UI.
+//
+// Browsers gate `crypto.randomUUID` and the rest of the secure-context APIs on
+// HTTPS, exempting only loopback. The dsh client calls them, so a plain-HTTP
+// LAN origin serves pages that fail with "crypto.randomUUID is not a function"
+// — deep in a settings screen, nowhere near the cause. Saying it at boot is
+// the difference between a five-minute fix and an afternoon.
+func warnIfInsecureOrigin(cfg *config.Config, log *slog.Logger) {
+	if cfg.PublicURL.Scheme == "https" {
+		return
+	}
+	host := cfg.PublicURL.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return
+	}
+	log.Warn("public URL is not a secure context; browsers will disable crypto.randomUUID and the dsh UI will fail",
+		"publicUrl", cfg.PublicURL.String(),
+		"fix", "run `dshf cert` and set DSHF_TLS_CERT / DSHF_TLS_KEY, or front this with a TLS proxy")
 }
 
 // noMachineSelected answers a request that arrived before the browser picked
@@ -403,6 +453,42 @@ func userCmd(args []string) error {
 	default:
 		return fmt.Errorf("unknown user subcommand %q", args[0])
 	}
+}
+
+// ── cert ─────────────────────────────────────────────────────────────────────
+
+func certCmd(args []string) error {
+	fs := flag.NewFlagSet("cert", flag.ContinueOnError)
+	dir := fs.String("dir", "certs", "directory to write cert.pem and key.pem into")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	// Cover this host's own addresses by default: the point of the exercise is
+	// that a phone types a LAN address, and a certificate without that address
+	// in its SAN list is rejected however carefully it was trusted.
+	hosts := fs.Args()
+	if len(hosts) == 0 {
+		hosts = certs.LocalAddresses()
+	}
+
+	out, err := certs.SelfSigned(*dir, hosts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("wrote %s and %s\n\n", out.CertPath, out.KeyPath)
+	fmt.Printf("  covers   %s\n", strings.Join(append(out.DNSNames, out.IPs...), ", "))
+	fmt.Printf("  expires  %s\n\n", out.NotAfter.Local().Format(time.RFC3339))
+	fmt.Println("Then start the control plane with:")
+	fmt.Printf("  DSHF_TLS_CERT=%s\n", out.CertPath)
+	fmt.Printf("  DSHF_TLS_KEY=%s\n", out.KeyPath)
+	fmt.Println("  DSHF_PUBLIC_URL=https://<the address you will type>:8080")
+	fmt.Println()
+	fmt.Println("The certificate signs itself, so the first visit shows a warning.")
+	fmt.Println("Accepting it makes the origin a secure context, which is what the")
+	fmt.Println("dsh UI needs: crypto.randomUUID does not exist without one.")
+	return nil
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────────

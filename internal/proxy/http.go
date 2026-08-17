@@ -5,11 +5,14 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/coder/websocket"
 
 	"github.com/gycherish/dsh-fleet/internal/uplink"
 	"github.com/gycherish/dsh-fleet/pkg/envelope"
@@ -102,6 +105,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The event downlinks are upgrades, not ordinary requests. Falling through
+	// to the request path would answer 426 and leave a UI that renders once and
+	// never updates.
+	if isUpgrade(r) {
+		h.bridge(w, r, conn, nodeID, ns, method, rest)
+		return
+	}
+
 	// A body cap belongs here rather than at the node: an oversized upload
 	// should never reach the uplink at all.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 32<<20))
@@ -139,8 +150,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.Status)
 	h.record(nodeID, ns, method, true, resp.Status, "")
 
-	// Flush per chunk: events.mux is an SSE stream, and buffering it would
-	// hold every assistant token until the response ended.
+	// Flush per chunk. The event downlinks upgrade rather than stream through
+	// here, but a large `session.export` and any future streaming response
+	// still must not be buffered whole before the browser sees a byte.
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 32*1024)
 	for {
@@ -157,6 +169,72 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !errors.Is(readErr, io.EOF) {
 				h.Log.Warn("proxy: response stream ended early", "node", nodeID, "path", rest, "err", readErr)
 			}
+			return
+		}
+	}
+}
+
+// isUpgrade reports a WebSocket handshake. Both header values are
+// case-insensitive, and Connection may list several tokens.
+func isUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
+// bridge relays one browser socket to the node's own server.
+//
+// Two hops, because neither end can reach the other directly: the browser
+// talks only to this control plane, and the node accepts no inbound
+// connections at all.
+func (h *Handler) bridge(w http.ResponseWriter, r *http.Request, conn *uplink.Conn, nodeID, ns, method, path string) {
+	remote, err := conn.OpenWS(r.Context(), path, nil)
+	if err != nil {
+		h.record(nodeID, ns, method, true, http.StatusBadGateway, "socket bridge failed")
+		h.Log.Warn("proxy: cannot bridge socket", "node", nodeID, "path", path, "err", err)
+		http.Error(w, "cannot reach the machine's event stream", http.StatusBadGateway)
+		return
+	}
+	defer remote.Close(int(websocket.StatusNormalClosure), "browser gone")
+
+	// Accepted only after the far end is up, so a failure is still an HTTP
+	// status the browser can read rather than an immediate close.
+	client, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// Same-origin is enforced by the console's session cookie; the browser
+		// is talking to the origin it loaded from.
+		OriginPatterns: []string{"*"},
+	})
+	if err != nil {
+		h.Log.Warn("proxy: browser upgrade rejected", "node", nodeID, "err", err)
+		return
+	}
+	defer func() { _ = client.CloseNow() }()
+	h.record(nodeID, ns, method, true, http.StatusSwitchingProtocols, "")
+
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+
+	// Node → browser.
+	go func() {
+		defer cancel()
+		for text := range remote.Messages {
+			if err := client.Write(ctx, websocket.MessageText, []byte(text)); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Browser → node. These downlinks are declared downlink-only, but relaying
+	// both ways costs one loop and keeps the bridge honest for any later
+	// endpoint that talks back.
+	for {
+		kind, data, err := client.Read(ctx)
+		if err != nil {
+			return
+		}
+		if kind != websocket.MessageText {
+			continue
+		}
+		if err := remote.Send(ctx, string(data)); err != nil {
 			return
 		}
 	}

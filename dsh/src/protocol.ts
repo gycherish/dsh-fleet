@@ -139,6 +139,44 @@ export interface ErrFrame {
   message: string
 }
 
+/**
+ * Ask the node to open a WebSocket to its own server and bridge it.
+ *
+ * `/api/events.mux` and `/api/events.host` are upgrades, not SSE — a plain GET
+ * answers 426 with no fallback — and they carry every assistant token. A
+ * carrier that forwards ordinary requests but drops upgrades produces a UI
+ * that loads, renders, and then never updates.
+ */
+export interface WsOpenFrame {
+  t: 'ws.open'
+  id: string
+  path: string
+  headers?: Record<string, string> | undefined
+}
+
+/** The bridged socket is connected and will start relaying messages. */
+export interface WsUpFrame {
+  t: 'ws.up'
+  id: string
+  /** Subprotocol the node's server selected, if any. */
+  protocol?: string | undefined
+}
+
+/** One message in either direction on a bridged socket. */
+export interface WsMsgFrame {
+  t: 'ws.msg'
+  id: string
+  body: Payload
+}
+
+/** Either end closing a bridged socket. */
+export interface WsCloseFrame {
+  t: 'ws.close'
+  id: string
+  code?: number | undefined
+  reason?: string | undefined
+}
+
 /** Unsolicited node snapshot. The `snapshot` object is deliberately open. */
 export interface TelemetryFrame {
   t: 'tlm'
@@ -167,9 +205,19 @@ export type NodeFrame =
   | ErrFrame
   | TelemetryFrame
   | PongFrame
+  | WsUpFrame
+  | WsMsgFrame
+  | WsCloseFrame
 
 /** Any frame the control plane may send. */
-export type ControlFrame = WelcomeFrame | ReqFrame | CancelFrame | PingFrame
+export type ControlFrame =
+  | WelcomeFrame
+  | ReqFrame
+  | CancelFrame
+  | PingFrame
+  | WsOpenFrame
+  | WsMsgFrame
+  | WsCloseFrame
 
 /**
  * Encode raw response bytes, preferring verbatim UTF-8 for textual content.

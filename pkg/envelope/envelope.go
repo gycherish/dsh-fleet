@@ -50,6 +50,11 @@ const (
 	TTelemetry = "tlm"
 	TPing      = "ping"
 	TPong      = "pong"
+
+	TWsOpen  = "ws.open"
+	TWsUp    = "ws.up"
+	TWsMsg   = "ws.msg"
+	TWsClose = "ws.close"
 )
 
 // Namespaces a request may address.
@@ -196,6 +201,41 @@ type Telemetry struct {
 	T        string          `json:"t"`
 	Ts       int64           `json:"ts"`
 	Snapshot json.RawMessage `json:"snapshot"`
+}
+
+// WsOpen asks the node to dial one WebSocket on its own server and bridge it.
+//
+// The event downlinks (/api/events.mux, /api/events.host) are upgrades, not
+// SSE — a plain GET answers 426 with no fallback — and they carry every
+// assistant token. Forwarding ordinary requests while dropping upgrades yields
+// a UI that loads, renders, and then never updates.
+type WsOpen struct {
+	T       string            `json:"t"`
+	ID      string            `json:"id"`
+	Path    string            `json:"path"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// WsUp reports that a bridged socket connected.
+type WsUp struct {
+	T        string `json:"t"`
+	ID       string `json:"id"`
+	Protocol string `json:"protocol,omitempty"`
+}
+
+// WsMsg is one message in either direction on a bridged socket.
+type WsMsg struct {
+	T    string  `json:"t"`
+	ID   string  `json:"id"`
+	Body Payload `json:"body"`
+}
+
+// WsClose is either end closing a bridged socket.
+type WsClose struct {
+	T      string `json:"t"`
+	ID     string `json:"id"`
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Ping probes liveness; Pong echoes Ts.

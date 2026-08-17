@@ -75,7 +75,19 @@ test('opening a machine loads its own dsh UI', async ({ page }, testInfo) => {
   await page.waitForLoadState('networkidle')
   await testInfo.attach('node-ui', { body: await page.screenshot({ fullPage: false }), contentType: 'image/png' })
 
-  expect(faults.requests.filter(f => !f.includes('favicon')), 'failed requests').toEqual([])
+  // A 403 here is the privilege gate doing its job, not a fault: the dsh UI
+  // probes the configuration plane on load and this control plane refuses it
+  // by default. Asserting the split keeps that deliberate refusal visible
+  // instead of quietly widening the filter until a real 404 slips through.
+  const refused = faults.requests.filter(f => f.startsWith('403 '))
+  const broken = faults.requests.filter(f => !f.startsWith('403 ') && !f.includes('favicon'))
+
+  expect(broken, 'failed requests').toEqual([])
+  for (const line of refused) {
+    expect(line, 'only privileged methods may be refused').toMatch(
+      /\/api\/(credentials|settings|agentPreset)\.|\/api\/host\.(pickDirectory|openPath)/,
+    )
+  }
 })
 
 test('the workspace picker can browse this node', async ({ page }) => {

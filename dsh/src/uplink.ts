@@ -71,6 +71,8 @@ export class Uplink {
   private socket: WebSocket | undefined
   private negotiated: Negotiated | undefined
   private readonly inFlight = new Map<string, AbortController>()
+  /** Bridged browser sockets, keyed by the control plane's correlation id. */
+  private readonly bridges = new Map<string, WebSocket>()
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private telemetryTimer: ReturnType<typeof setInterval> | undefined
   private retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -98,6 +100,8 @@ export class Uplink {
     this.clearTimers()
     for (const controller of this.inFlight.values()) controller.abort(new Error('node is shutting down'))
     this.inFlight.clear()
+    for (const bridge of this.bridges.values()) bridge.close(1001, 'node shutting down')
+    this.bridges.clear()
     this.socket?.close(1001, 'node shutting down')
     this.socket = undefined
     // Yield once so the close frame reaches the socket before the fiber's
@@ -168,6 +172,10 @@ export class Uplink {
     this.clearTimers()
     for (const controller of this.inFlight.values()) controller.abort(new Error('uplink closed'))
     this.inFlight.clear()
+    // Correlation ids are per-connection, so a bridged socket cannot survive
+    // the uplink that addressed it.
+    for (const bridge of this.bridges.values()) bridge.close(1001, 'uplink closed')
+    this.bridges.clear()
     if (this.stopped) return
 
     if (FATAL_CLOSE.has(code)) {
@@ -205,6 +213,15 @@ export class Uplink {
         return
       case 'req':
         await this.serve(frame)
+        return
+      case 'ws.open':
+        this.bridgeOpen(frame)
+        return
+      case 'ws.msg':
+        this.bridges.get(frame.id)?.send(new TextDecoder().decode(decodePayload(frame.body)))
+        return
+      case 'ws.close':
+        this.bridges.get(frame.id)?.close(frame.code ?? 1000, frame.reason ?? '')
         return
       default:
         // Forward compatibility: a newer control plane may add frames this
@@ -266,6 +283,45 @@ export class Uplink {
     } finally {
       this.inFlight.delete(frame.id)
     }
+  }
+
+  /**
+   * Open a socket to this node's own server and relay it to the browser.
+   *
+   * The node dials rather than the control plane, for the same reason it dials
+   * the uplink: nothing here listens for inbound connections.
+   */
+  private bridgeOpen(frame: { id: string; path: string }): void {
+    const target = new URL(frame.path, this.options.localWebUrl)
+    target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
+
+    let socket: WebSocket
+    try {
+      socket = new WebSocket(target)
+    } catch (error: unknown) {
+      this.fail(frame.id, 'internal', `cannot open ${target.href}: ${String(error)}`)
+      return
+    }
+    this.bridges.set(frame.id, socket)
+
+    socket.addEventListener('open', () => {
+      this.send({ t: 'ws.up', id: frame.id, protocol: socket.protocol || undefined })
+    })
+    socket.addEventListener('message', (event: MessageEvent) => {
+      const text = typeof event.data === 'string'
+        ? event.data
+        // These downlinks are text-only today; decoding keeps one payload
+        // shape rather than adding a binary flag nothing sets.
+        : new TextDecoder().decode(event.data as ArrayBuffer)
+      this.send({ t: 'ws.msg', id: frame.id, body: encodePayload(new TextEncoder().encode(text), true) })
+    })
+    socket.addEventListener('close', (event: CloseEvent) => {
+      this.bridges.delete(frame.id)
+      this.send({ t: 'ws.close', id: frame.id, code: event.code, reason: event.reason })
+    })
+    socket.addEventListener('error', () => {
+      // `close` always follows and carries the code the other end should see.
+    })
   }
 
   private async serveDsh(frame: ReqFrame, signal: AbortSignal): Promise<void> {
