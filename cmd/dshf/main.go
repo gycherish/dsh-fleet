@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -179,6 +180,7 @@ func serve(_ []string) error {
 		NotFound: nodes.ErrNotFound,
 		Revoked:  nodes.ErrRevoked,
 		Foreign:  nodes.ErrForeign,
+		OwnToken: nodes.ErrHasOwnToken,
 	})
 
 	// ── the console, behind the session guard ──
@@ -199,6 +201,25 @@ func serve(_ []string) error {
 		Log:   logger,
 	}))
 	mux.Handle("GET "+console.PathOverlay, guard.Require(http.HandlerFunc(console.Overlay)))
+
+	// Everyone manages their own account and their own machine tokens.
+	account := &console.AccountPage{
+		Users: userStore,
+		Log:   logger,
+		// The address a node dials, shown beside a new token so the whole
+		// configuration can be copied at once.
+		Uplink: uplinkURL(cfg.PublicURL),
+	}
+	mux.Handle("GET "+console.PathAccount, guard.Require(account))
+	mux.Handle("POST "+console.PathAccount+"/password", guard.Require(http.HandlerFunc(account.ChangePassword)))
+	mux.Handle("POST "+console.PathAccount+"/tokens", guard.Require(http.HandlerFunc(account.MintToken)))
+	mux.Handle("POST "+console.PathAccount+"/tokens/revoke", guard.Require(http.HandlerFunc(account.RevokeToken)))
+
+	// Managing other people is an admin matter.
+	people := &console.PeoplePage{Users: userStore, Log: logger}
+	mux.Handle("GET "+console.PathPeople, guard.RequireAdmin(people))
+	mux.Handle("POST "+console.PathPeople, guard.RequireAdmin(http.HandlerFunc(people.Create)))
+	mux.Handle("POST "+console.PathPeople+"/update", guard.RequireAdmin(http.HandlerFunc(people.Update)))
 
 	// ── everything else belongs to the selected machine ──
 	//
@@ -310,6 +331,19 @@ func warnIfInsecureOrigin(cfg *config.Config, log *slog.Logger) {
 // A navigation goes to the chooser; anything else gets a status, because
 // answering a fetch with the chooser's HTML would surface as a parse error
 // rather than as the actionable "pick a machine first".
+// uplinkURL turns the browser-facing origin into the address a node dials.
+//
+// Same host, `ws`/`wss` scheme, `/uplink` path — derived rather than configured
+// so the two can never drift, which is the kind of mismatch that shows up as a
+// node that silently never connects.
+func uplinkURL(public *url.URL) string {
+	scheme := "ws"
+	if public.Scheme == "https" {
+		scheme = "wss"
+	}
+	return scheme + "://" + public.Host + "/uplink"
+}
+
 // enroller joins the two stores self-enrolment needs.
 type enroller struct {
 	users *users.Store

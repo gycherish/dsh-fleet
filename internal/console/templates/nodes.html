@@ -72,6 +72,8 @@ dialog code { font-size: .8em; }
   <header>
     <span class="brand"><span class="mark" aria-hidden="true">dF</span> dsh-fleet</span>
     <span class="spacer"></span>
+    <a class="btn quiet" href="/_fleet/account">Your account</a>
+    {{if .Admin}}<a class="btn quiet" href="/_fleet/people">People</a>{{end}}
     {{if .User}}<span class="who">{{.User}}</span>{{end}}
     <form method="post" action="/_fleet/logout">
       <button class="btn quiet" type="submit">Sign out</button>
@@ -109,8 +111,8 @@ dialog code { font-size: .8em; }
   {{else}}
   <p class="empty">
     No machines yet.<br>
-    Register one to mint its token:
-    <code>dshf node add &lt;id&gt;</code>
+    Create a token on <a href="/_fleet/account">your account</a>, then paste it into
+    that machine's <strong>dsh-fleet</strong> plugin. It registers itself.
   </p>
   {{end}}
 

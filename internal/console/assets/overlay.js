@@ -318,6 +318,7 @@
       <div class="list">${rows}</div>
       <div class="foot">
         <a href="${PREFIX}/console">All machines</a>
+        <a href="${PREFIX}/account">Account</a>
         <form method="post" action="${PREFIX}/logout"><button class="out" type="submit">Sign out</button></form>
       </div>
       <p class="hint">Drag this button anywhere; it parks on the nearest edge.</p>`

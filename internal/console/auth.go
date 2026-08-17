@@ -30,6 +30,8 @@ const (
 	PathSelect  = Prefix + "/select/"
 	PathState   = Prefix + "/state"
 	PathOverlay = Prefix + "/overlay.js"
+	PathAccount = Prefix + "/account"
+	PathPeople  = Prefix + "/people"
 )
 
 // SessionCookie is the browser session cookie name.
@@ -96,6 +98,22 @@ func (g *Guard) Require(next http.Handler) http.Handler {
 		}
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 	})
+}
+
+// RequireAdmin wraps a handler so only administrators reach it.
+//
+// Layered inside Require rather than replacing it, so an ordinary account gets
+// "not yours" rather than "sign in", which is the truthful answer and does not
+// send someone round a login loop they can never finish.
+func (g *Guard) RequireAdmin(next http.Handler) http.Handler {
+	return g.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFrom(r.Context())
+		if user == nil || !user.IsAdmin {
+			http.Error(w, "administrators only", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
 }
 
 // Login handles the login form.

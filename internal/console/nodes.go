@@ -89,7 +89,8 @@ func (p *NodesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		username = user.Username
 	}
-	renderNodes(w, nodesData{Nodes: views, User: username, Prefix: Prefix})
+	admin := user != nil && user.IsAdmin
+	renderNodes(w, nodesData{Nodes: views, User: username, Prefix: Prefix, Admin: admin})
 }
 
 // Home sends a bare visit to the reserved prefix on to the chooser.
@@ -164,6 +165,9 @@ func status(n nodes.Node, live bool) string {
 		return "offline"
 	}
 }
+
+// nowSince is time.Since, named so a caller reads as "how long ago was this".
+func nowSince(t time.Time) time.Duration { return time.Since(t) }
 
 // humanSince renders an age the way an operator reads it, not to the second.
 func humanSince(d time.Duration) string {

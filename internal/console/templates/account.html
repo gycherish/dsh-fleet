@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+{{template "head" .}}
+<title>Your account · dsh-fleet</title>
+<style>
+.wrap { max-width: 38rem; margin: 0 auto; }
+header { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.4rem; }
+header .brand { font-size: .95rem; }
+header nav { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
+header .who { font-size: .8rem; color: var(--muted); }
+header form { display: inline; margin: 0; }
+
+h1 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0 0 1.3rem; }
+h2 { font-size: 1rem; margin: 0 0 .2rem; }
+.hint { color: var(--muted); font-size: .82rem; margin: 0 0 .9rem; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+  padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+}
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .78rem; color: var(--muted); }
+input[type=text], input[type=password] {
+  font: inherit; padding: .5rem .6rem; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); width: 100%;
+}
+input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; }
+.row > label { flex: 1 1 9rem; }
+.grid { display: grid; gap: .7rem; }
+
+.banner { border-radius: 8px; padding: .55rem .75rem; font-size: .84rem; margin-bottom: 1rem; }
+.banner.bad { background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid var(--danger); color: var(--danger); }
+.banner.ok  { background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid var(--ok); color: var(--ok); }
+
+table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+td, th { text-align: left; padding: .5rem .4rem; border-bottom: 1px solid var(--rule); }
+th { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.right { text-align: right; }
+.stale { color: var(--muted); text-decoration: line-through; }
+.empty { color: var(--muted); font-size: .85rem; padding: .8rem 0; }
+
+/* The one-time reveal. Loud on purpose: this is the only time it exists. */
+.minted { border-color: var(--accent); background: var(--hover); }
+.minted h2 { color: var(--accent); }
+pre {
+  margin: .7rem 0 0; padding: .8rem; overflow-x: auto;
+  background: var(--sunk); border: 1px solid var(--rule); border-radius: 8px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .78rem; line-height: 1.6;
+}
+.once { font-size: .78rem; color: var(--warn); margin: .6rem 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="{{.Prefix}}/console" style="text-decoration:none;color:inherit">
+      <span class="mark" aria-hidden="true">dF</span> dsh-fleet
+    </a>
+    <nav>
+      <a class="btn quiet" href="{{.Prefix}}/console">Machines</a>
+      {{if .Admin}}<a class="btn quiet" href="{{.Prefix}}/people">People</a>{{end}}
+      <span class="who">{{.User}}</span>
+      <form method="post" action="{{.Prefix}}/logout"><button class="btn quiet" type="submit">Sign out</button></form>
+    </nav>
+  </header>
+
+  <h1>Your account</h1>
+
+  {{if .Error}}<p class="banner bad">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="banner ok">{{.Notice}}</p>{{end}}
+
+  {{if .Minted}}
+  <div class="card minted">
+    <h2>Token “{{.MintedName}}” created</h2>
+    <p class="hint">Paste this into the machine you want to reach — Settings → Plugins, or its config file.
+      Pick any <code>nodeId</code> you have not used; the machine registers itself.</p>
+    <pre>url: {{.Uplink}}
+nodeId: &lt;a name for that machine&gt;
+username: {{.User}}
+token: {{.Minted}}</pre>
+    <p class="once">Shown once. Only its hash is stored, so this cannot be displayed again.</p>
+  </div>
+  {{end}}
+
+  <div class="card">
+    <h2>Machine tokens</h2>
+    <p class="hint">A machine enrols itself with your username and one of these. Revoking a
+      token disconnects every machine that used it.</p>
+
+    {{if .Tokens}}
+    <table>
+      <tr><th>Name</th><th>Created</th><th>Use</th><th></th></tr>
+      {{range .Tokens}}
+      <tr>
+        <td class="{{if .Revoked}}stale{{end}}">{{.Name}}</td>
+        <td>{{.Created}}</td>
+        <td>{{if .Revoked}}revoked{{else}}{{.LastUsed}}{{end}}</td>
+        <td class="right">
+          {{if not .Revoked}}
+          <form method="post" action="{{$.Prefix}}/account/tokens/revoke">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button class="btn quiet" type="submit">Revoke</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}
+    <p class="empty">No tokens yet.</p>
+    {{end}}
+
+    <form class="row" method="post" action="{{.Prefix}}/account/tokens" style="margin-top:1rem">
+      <label>What is it for
+        <input type="text" name="name" placeholder="laptop" required>
+      </label>
+      <button class="btn primary" type="submit">Create token</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Password</h2>
+    <p class="hint">Changing it signs out every other browser, including this one.</p>
+    <form class="grid" method="post" action="{{.Prefix}}/account/password">
+      <label>Current password
+        <input type="password" name="current" autocomplete="current-password" required>
+      </label>
+      <div class="row">
+        <label>New password
+          <input type="password" name="next" autocomplete="new-password" minlength="10" required>
+        </label>
+        <label>Again
+          <input type="password" name="again" autocomplete="new-password" minlength="10" required>
+        </label>
+      </div>
+      <div><button class="btn primary" type="submit">Change password</button></div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

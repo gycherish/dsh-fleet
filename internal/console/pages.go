@@ -24,6 +24,9 @@ type nodesData struct {
 	Nodes  []nodeView
 	User   string
 	Prefix string
+	// Admin decides whether the People link appears at all; the route behind it
+	// refuses non-admins regardless.
+	Admin bool
 }
 
 func renderNodes(w http.ResponseWriter, data nodesData) {
@@ -33,6 +36,24 @@ func renderNodes(w http.ResponseWriter, data nodesData) {
 	w.Header().Set("cache-control", "no-store")
 	if err := templates.ExecuteTemplate(w, "nodes.html", data); err != nil {
 		log.Printf("console: cannot render machine list: %v", err)
+	}
+}
+
+func renderAccount(w http.ResponseWriter, data accountData) {
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	// A freshly minted token can appear in this response, and a token in a
+	// back-button cache is a token in a shared browser.
+	w.Header().Set("cache-control", "no-store")
+	if err := templates.ExecuteTemplate(w, "account.html", data); err != nil {
+		log.Printf("console: cannot render the account page: %v", err)
+	}
+}
+
+func renderPeople(w http.ResponseWriter, data peopleData) {
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	w.Header().Set("cache-control", "no-store")
+	if err := templates.ExecuteTemplate(w, "people.html", data); err != nil {
+		log.Printf("console: cannot render the people page: %v", err)
 	}
 }
 

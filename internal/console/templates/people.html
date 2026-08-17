@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+{{template "head" .}}
+<title>People · dsh-fleet</title>
+<style>
+.wrap { max-width: 42rem; margin: 0 auto; }
+header { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.4rem; }
+header .brand { font-size: .95rem; }
+header nav { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
+header .who { font-size: .8rem; color: var(--muted); }
+header form { display: inline; margin: 0; }
+
+h1 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0 0 .2rem; }
+.lede { color: var(--muted); font-size: .88rem; margin: 0 0 1.2rem; }
+h2 { font-size: 1rem; margin: 0 0 .2rem; }
+.hint { color: var(--muted); font-size: .82rem; margin: 0 0 .9rem; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+  padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+}
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .78rem; color: var(--muted); }
+input[type=text], input[type=password] {
+  font: inherit; padding: .5rem .6rem; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); width: 100%;
+}
+input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; }
+.row > label { flex: 1 1 8rem; }
+.check { flex-direction: row; align-items: center; gap: .35rem; font-size: .82rem; }
+
+.banner { border-radius: 8px; padding: .55rem .75rem; font-size: .84rem; margin-bottom: 1rem; }
+.banner.bad { background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid var(--danger); color: var(--danger); }
+.banner.ok  { background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid var(--ok); color: var(--ok); }
+
+.person {
+  border: 1px solid var(--rule); border-radius: 10px; padding: .8rem .9rem; margin-bottom: .6rem;
+}
+.person.off { background: var(--sunk); }
+.top { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.name { font-weight: 600; }
+.person.off .name { color: var(--muted); }
+.tag {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .07em;
+  border-radius: 999px; padding: .1rem .45rem; border: 1px solid currentColor;
+}
+.tag.admin { color: var(--accent); }
+.tag.off { color: var(--warn); }
+.tag.you { color: var(--muted); }
+.when { margin-left: auto; font-size: .74rem; color: var(--muted); }
+.acts { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .6rem; }
+.acts form { display: inline; margin: 0; }
+.acts .danger { color: var(--danger); }
+details { margin-top: .6rem; }
+summary { font-size: .78rem; color: var(--accent); cursor: pointer; }
+details .row { margin-top: .5rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="{{.Prefix}}/console" style="text-decoration:none;color:inherit">
+      <span class="mark" aria-hidden="true">dF</span> dsh-fleet
+    </a>
+    <nav>
+      <a class="btn quiet" href="{{.Prefix}}/console">Machines</a>
+      <a class="btn quiet" href="{{.Prefix}}/account">Your account</a>
+      <span class="who">{{.User}}</span>
+      <form method="post" action="{{.Prefix}}/logout"><button class="btn quiet" type="submit">Sign out</button></form>
+    </nav>
+  </header>
+
+  <h1>People</h1>
+  <p class="lede">Who can sign in to this console.</p>
+
+  {{if .Error}}<p class="banner bad">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="banner ok">{{.Notice}}</p>{{end}}
+  {{if .Created}}<p class="banner ok">Created “{{.Created}}”. Give them the password you just set; they can change it themselves.</p>{{end}}
+
+  {{range .People}}
+  <div class="person {{if .Disabled}}off{{end}}">
+    <div class="top">
+      <span class="name">{{.Username}}</span>
+      {{if .Admin}}<span class="tag admin">admin</span>{{end}}
+      {{if .Disabled}}<span class="tag off">no access</span>{{end}}
+      {{if .Self}}<span class="tag you">you</span>{{end}}
+      <span class="when">since {{.Created}}</span>
+    </div>
+    <div class="acts">
+      {{if .Admin}}
+        <form method="post" action="{{$.Prefix}}/people/update">
+          <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="demote">
+          <button class="btn quiet" type="submit">Remove admin</button>
+        </form>
+      {{else}}
+        <form method="post" action="{{$.Prefix}}/people/update">
+          <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="promote">
+          <button class="btn quiet" type="submit">Make admin</button>
+        </form>
+      {{end}}
+      {{if not .Self}}
+        {{if .Disabled}}
+          <form method="post" action="{{$.Prefix}}/people/update">
+            <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="enable">
+            <button class="btn quiet" type="submit">Restore access</button>
+          </form>
+        {{else}}
+          <form method="post" action="{{$.Prefix}}/people/update">
+            <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="disable">
+            <button class="btn quiet" type="submit">Withdraw access</button>
+          </form>
+        {{end}}
+        <form method="post" action="{{$.Prefix}}/people/update"
+              onsubmit="return confirm('Delete {{.Username}}? Machines they enrolled keep running until their next reconnect.')">
+          <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="delete">
+          <button class="btn quiet danger" type="submit">Delete</button>
+        </form>
+      {{end}}
+    </div>
+    <details>
+      <summary>Reset password</summary>
+      <form class="row" method="post" action="{{$.Prefix}}/people/update">
+        <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="reset">
+        <label>New password<input type="password" name="password" minlength="10" required></label>
+        <label>Again<input type="password" name="again" minlength="10" required></label>
+        <button class="btn" type="submit">Reset</button>
+      </form>
+    </details>
+  </div>
+  {{end}}
+
+  <div class="card">
+    <h2>Add someone</h2>
+    <p class="hint">They can change the password themselves afterwards.</p>
+    <form method="post" action="{{.Prefix}}/people">
+      <div class="row">
+        <label>Username<input type="text" name="username" autocapitalize="none" required></label>
+        <label>Password<input type="password" name="password" minlength="10" required></label>
+        <label>Again<input type="password" name="again" minlength="10" required></label>
+      </div>
+      <div class="row" style="margin-top:.7rem">
+        <label class="check"><input type="checkbox" name="admin"> Administrator</label>
+        <button class="btn primary" type="submit">Create account</button>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>
