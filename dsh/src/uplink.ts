@@ -25,6 +25,7 @@ import {
   type WelcomeFrame,
 } from './protocol.ts'
 import { FleetError, dispatchFleet, type FileAccessPolicy } from './fleet.ts'
+import { SETUP_PATH } from './setup.ts'
 import { buildSnapshot, dshVersion } from './telemetry.ts'
 
 /** Everything the uplink needs from the plugin's validated configuration. */
@@ -85,6 +86,17 @@ export function closeSocket(socket: WebSocket | undefined, code: number, reason:
     // Already closing, or the runtime refused anyway. The socket is going away
     // either way, and nothing downstream depends on how it got there.
   }
+}
+
+/**
+ * Does this path belong to the machine's own setup page?
+ *
+ * Matched on the pathname only, and with the query stripped, so neither
+ * `?x=1` nor a trailing slash slips a request past it.
+ */
+export function isSetupPath(path: string): boolean {
+  const pathname = path.split('?')[0]?.replace(/\/+$/, '') ?? ''
+  return pathname === SETUP_PATH || pathname.startsWith(`${SETUP_PATH}/`)
 }
 
 /** Close codes that mean retrying with the same configuration cannot work. */
@@ -365,6 +377,17 @@ export class Uplink {
   }
 
   private async serveDsh(frame: ReqFrame, signal: AbortSignal): Promise<void> {
+    // This machine's setup page stays local. It can re-point the node at a
+    // different control plane, so forwarding it would let whoever is signed in
+    // to the current one hand the machine to another — and configuring a
+    // machine is a local act besides. The refusal lives here because the
+    // uplink is the only thing that can tell "reached over the fleet" from
+    // "reached from this machine", both of which arrive at loopback.
+    if (isSetupPath(frame.path)) {
+      this.fail(frame.id, 'denied', 'the fleet setup page is only served on the machine itself')
+      return
+    }
+
     const init: RequestInit = { method: frame.method, headers: frame.headers ?? {}, signal }
     if (frame.body !== undefined && frame.method !== 'GET' && frame.method !== 'HEAD') {
       init.body = decodePayload(frame.body)

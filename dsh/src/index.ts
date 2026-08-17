@@ -26,6 +26,8 @@ import { hostname } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Uplink } from './uplink.ts'
+import { mountSetup, type SetupOptions, type SetupStatus } from './setup.ts'
+import { readSaved, writeSaved } from './store.ts'
 
 export { PROTOCOL_VERSION } from './protocol.ts'
 export type { Snapshot, EntrySnapshot } from './telemetry.ts'
@@ -142,11 +144,22 @@ export const Config: z<Config> = z.object({
     .default(1_048_576),
 })
 
-/** One connection setting, from the config or the environment. */
-function setting(value: string | undefined, envVar: string): string {
-  const configured = (value ?? '').trim()
-  if (configured !== '') return configured
-  return (process.env[envVar] ?? '').trim()
+/**
+ * One connection setting, from the three places it can come from.
+ *
+ * Declared configuration first, then what the setup page saved, then the
+ * environment. Declared beats saved so that a value written into a config file
+ * on purpose is not silently overridden by an old save — and when it does
+ * shadow one, the page says so rather than appearing to ignore the form.
+ * Empty counts as absent at every level, which is what makes an unconfigured
+ * bundled install fall through to the page in the first place.
+ */
+function setting(value: string | undefined, saved: string | undefined, envVar: string): string {
+  for (const candidate of [value, saved, process.env[envVar]]) {
+    const trimmed = (candidate ?? '').trim()
+    if (trimmed !== '') return trimmed
+  }
+  return ''
 }
 
 /**
@@ -195,26 +208,135 @@ interface Connection {
 }
 
 /**
- * Resolve the connection, preferring configuration over the environment.
+ * Resolve the connection across all three sources.
  *
- * Two sources rather than one because they serve different people: a container
- * sets variables and never opens a UI, and a person on a laptop wants a form.
- * Configuration wins so that editing the form is never silently overridden by
- * a variable someone exported months ago.
+ * Three rather than one because they serve different people: a container sets
+ * variables and never opens a UI, an operator declares a config file, and a
+ * person at the machine uses the setup page. The store is read fresh on every
+ * call so a save is visible to the reload it triggers.
  *
  * @returns the connection, or undefined when it is not configured at all.
  */
 function connection(config: Config): Connection | undefined {
+  const saved = readSaved()
   const resolved = {
-    url: setting(config.url, 'DSH_FLEET_URL'),
+    url: setting(config.url, saved.url, 'DSH_FLEET_URL'),
     // Falls back to the hostname: the machine already knows its own name.
-    nodeId: setting(config.nodeId, 'DSH_FLEET_NODE_ID') || machineName(),
-    token: setting(config.token, 'DSH_FLEET_TOKEN'),
+    nodeId: setting(config.nodeId, saved.nodeId, 'DSH_FLEET_NODE_ID') || machineName(),
+    token: setting(config.token, saved.token, 'DSH_FLEET_TOKEN'),
     // Optional: its presence chooses self-enrolment over a machine token.
-    username: setting(config.username, 'DSH_FLEET_USERNAME'),
+    username: setting(config.username, saved.username, 'DSH_FLEET_USERNAME'),
   }
   const required: (keyof Connection)[] = ['url', 'nodeId', 'token']
   return required.every(key => resolved[key] !== '') ? resolved : undefined
+}
+
+/**
+ * What the setup page reads and writes.
+ *
+ * Saving goes through this plugin's own loader entry, which is what makes the
+ * change take effect: Cordis writes it to the config file and reloads the
+ * plugin, so the uplink comes up without restarting dsh.
+ */
+function setupHooks(ctx: Context, config: Config): SetupOptions {
+  return {
+    read: () => {
+      const saved = readSaved()
+      const settings = connection(config)
+      const status: SetupStatus = settings === undefined
+        ? { state: 'offline', detail: 'not configured' }
+        : { state: 'connecting', detail: `to ${settings.url}` }
+      return {
+        fields: {
+          url: setting(config.url, saved.url, 'DSH_FLEET_URL'),
+          // Shown resolved, so the placeholder is the name that would be used.
+          nodeId: setting(config.nodeId, saved.nodeId, 'DSH_FLEET_NODE_ID') || machineName(),
+          username: setting(config.username, saved.username, 'DSH_FLEET_USERNAME'),
+          token: '',
+          label: config.label ?? '',
+        },
+        // Never the value: a masked token round-tripping through a form is how
+        // a real secret gets overwritten by asterisks.
+        tokenSet: setting(config.token, saved.token, 'DSH_FLEET_TOKEN') !== '',
+        status,
+      }
+    },
+
+    save: async (fields) => {
+      if (fields.url !== '') assertEndpoint(fields.url)
+
+      // The store is what survives a restart. The loader cannot do it: an entry
+      // mounted from a patch overlay has no writable config behind it, so
+      // `entry.update()` reloads the plugin and then loses the value — measured,
+      // not assumed.
+      const saved = readSaved()
+      // An empty token field means "keep what is stored", which is the only way
+      // a form showing a mask can be saved without destroying the secret.
+      const token = fields.token !== '' ? fields.token : (saved.token ?? '')
+      writeSaved({
+        url: fields.url,
+        nodeId: fields.nodeId,
+        username: fields.username,
+        label: fields.label,
+        token,
+      })
+
+      // And this is what makes it take effect now rather than at the next start.
+      // A declared config value beats the store, so say so instead of leaving
+      // someone staring at a form that appears to have been ignored.
+      const shadowed = (['url', 'nodeId', 'username'] as const)
+        .filter(key => (config[key] ?? '').trim() !== '')
+      if (shadowed.length > 0) {
+        throw new Error(
+          `saved, but ${shadowed.join(', ')} ${shadowed.length === 1 ? 'is' : 'are'} also set in this `
+          + 'deployment\'s config file, which takes precedence. Remove it there for this page to take effect.',
+        )
+      }
+      await restart(ctx)
+    },
+  }
+}
+
+/**
+ * Reload this plugin so a saved change takes effect without restarting dsh.
+ *
+ * Done by touching the entry's own config rather than restarting the fiber
+ * directly: the loader watches for a config diff, and a no-op update would not
+ * produce one. The values it writes are the ones already resolved, so a
+ * writable config file ends up agreeing with the store rather than fighting it.
+ */
+async function restart(ctx: Context): Promise<void> {
+  const entry = ctx.fiber.entry
+  if (entry === undefined) return
+  const saved = readSaved()
+  await entry.update({
+    config: {
+      ...(entry.options.config as object),
+      url: saved.url ?? '',
+      nodeId: saved.nodeId ?? '',
+      username: saved.username ?? '',
+      token: saved.token ?? '',
+      label: saved.label ?? '',
+    },
+  })
+}
+
+/**
+ * Reject an endpoint the uplink could never dial, before it is written.
+ *
+ * Saving an unusable value would reload the plugin into a failure the page
+ * cannot then explain, so the refusal belongs at the form.
+ */
+function assertEndpoint(url: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`"${url}" is not a URL`)
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error(`the address must start with ws:// or wss://, not ${parsed.protocol}`)
+  }
 }
 
 /**
@@ -300,6 +422,11 @@ function warnOnUnreachableDirectoryPicker(ctx: Context): void {
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config): void {
+  // Mounted before the connection is resolved, and left mounted either way:
+  // its whole reason to exist is being reachable while this plugin is not
+  // connected.
+  ctx.effect(() => mountSetup(ctx, setupHooks(ctx, config)) ?? (() => {}), 'fleet-node.setup()')
+
   const settings = connection(config)
   if (settings === undefined) {
     // Loaded but idle, on purpose. Refusing to load would keep this plugin out

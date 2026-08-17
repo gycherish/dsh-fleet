@@ -37,7 +37,9 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/cordis-plugin-loader": "*",
     "@deepseek-ai/dsh-host-apiproxy": "*",
+    "@deepseek-ai/dsh-host-webserver": "*",
     "@deepseek-ai/dsh-fs": "*",
     "@deepseek-ai/schemastery": "*"
   },
@@ -58,7 +60,9 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-host-apiproxy": "link:../../deepseek-harness/packages/host/apiproxy",
+    "@deepseek-ai/cordis-plugin-loader": "link:../../deepseek-harness/vendor/loader",
     "@deepseek-ai/dsh-fs": "link:../../deepseek-harness/packages/fs/fs",
+    "@deepseek-ai/dsh-host-webserver": "link:../../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",
     "@types/node": ">=22.15.0",
     "typescript": "^5.7.0"
