@@ -53,6 +53,38 @@ interface Negotiated {
   telemetryIntervalMs: number
 }
 
+/** The only close code an application may send outside the 3000-4999 range. */
+const CLOSE_NORMAL = 1000
+
+/**
+ * Close a socket without letting the close itself throw.
+ *
+ * `WebSocket.close()` accepts 1000 or 3000-4999 and rejects everything else
+ * with InvalidAccessError — 1001 "going away" and 1006 "abnormal" included,
+ * because the runtime reserves those for itself. The reason has a 123-byte
+ * ceiling that throws the same way.
+ *
+ * Every call here runs inside a close handler or a timer, where there is no
+ * caller to catch anything: a throw becomes an unhandled rejection and takes
+ * the whole harness process down. It did, on every uplink drop that left a
+ * bridge open. One of these codes also arrives from the control plane, which
+ * would make the ceiling a remote kill switch — so sanitise rather than trust,
+ * and swallow whatever the runtime still objects to.
+ */
+export function closeSocket(socket: WebSocket | undefined, code: number, reason: string): void {
+  if (socket === undefined) return
+  const safe = code === CLOSE_NORMAL || (code >= 3000 && code <= 4999) ? code : CLOSE_NORMAL
+  const bytes = new TextEncoder().encode(reason)
+  // Decoding a cut that lands mid-character yields a replacement char; drop it.
+  const text = bytes.length <= 123 ? reason : new TextDecoder().decode(bytes.slice(0, 123)).replace(/�$/, '')
+  try {
+    socket.close(safe, text)
+  } catch {
+    // Already closing, or the runtime refused anyway. The socket is going away
+    // either way, and nothing downstream depends on how it got there.
+  }
+}
+
 /** Close codes that mean retrying with the same configuration cannot work. */
 const FATAL_CLOSE: ReadonlySet<number> = new Set([
   CloseCode.BAD_TOKEN,
@@ -100,9 +132,9 @@ export class Uplink {
     this.clearTimers()
     for (const controller of this.inFlight.values()) controller.abort(new Error('node is shutting down'))
     this.inFlight.clear()
-    for (const bridge of this.bridges.values()) bridge.close(1001, 'node shutting down')
+    for (const bridge of this.bridges.values()) closeSocket(bridge, CLOSE_NORMAL, 'node shutting down')
     this.bridges.clear()
-    this.socket?.close(1001, 'node shutting down')
+    closeSocket(this.socket, CLOSE_NORMAL, 'node shutting down')
     this.socket = undefined
     // Yield once so the close frame reaches the socket before the fiber's
     // remaining disposers run; the control plane then marks the node offline
@@ -152,7 +184,12 @@ export class Uplink {
     })
 
     socket.addEventListener('message', (event: MessageEvent) => {
-      void this.onMessage(event.data)
+      // Nothing above this frame can catch: an unhandled rejection here ends
+      // the harness process, so a malformed frame from the control plane would
+      // be enough to stop the machine's dsh. Log and keep the uplink running.
+      this.onMessage(event.data).catch((error: unknown) => {
+        this.log().warn(`uplink: frame handler failed: ${String(error)}`)
+      })
     })
 
     socket.addEventListener('close', (event: CloseEvent) => {
@@ -174,7 +211,7 @@ export class Uplink {
     this.inFlight.clear()
     // Correlation ids are per-connection, so a bridged socket cannot survive
     // the uplink that addressed it.
-    for (const bridge of this.bridges.values()) bridge.close(1001, 'uplink closed')
+    for (const bridge of this.bridges.values()) closeSocket(bridge, CLOSE_NORMAL, 'uplink closed')
     this.bridges.clear()
     if (this.stopped) return
 
@@ -221,7 +258,7 @@ export class Uplink {
         this.bridges.get(frame.id)?.send(new TextDecoder().decode(decodePayload(frame.body)))
         return
       case 'ws.close':
-        this.bridges.get(frame.id)?.close(frame.code ?? 1000, frame.reason ?? '')
+        closeSocket(this.bridges.get(frame.id), frame.code ?? CLOSE_NORMAL, frame.reason ?? '')
         return
       default:
         // Forward compatibility: a newer control plane may add frames this
@@ -245,7 +282,7 @@ export class Uplink {
       if (this.missedPongs > 2) {
         // Two missed probes means the socket is open but the peer is gone —
         // TCP will not tell us for minutes, so close and let backoff retry.
-        this.socket?.close(1006, 'heartbeat lost')
+        closeSocket(this.socket, CloseCode.HEARTBEAT_LOST, 'heartbeat lost')
         return
       }
       this.send({ t: 'pong', ts: Date.now() })

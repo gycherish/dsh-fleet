@@ -91,6 +91,14 @@ The node adopts these values for the lifetime of the connection. A control plane
 
 `4004` is deliberately not a takeover: a flapping node must not repeatedly evict a healthy one. The newcomer backs off and retries.
 
+One code travels the other way. The node closes with `4006` when two heartbeats go unanswered — the socket is open but the peer is gone, and TCP will not say so for minutes. It is not a rejection: the node reconnects on its normal backoff, and the control plane should log it rather than hold the disconnect against the node.
+
+| Code | Meaning |
+|---|---|
+| `4006` | node lost the heartbeat and is reconnecting |
+
+Both directions must stay inside `1000` or `3000`–`4999`. Those are the only codes a WebSocket application may send; a browser or Node runtime throws on anything else, `1001` and `1006` included, which is why the reserved-sounding codes never appear on this wire.
+
 ## Requests
 
 ### `req` (control plane → node)

@@ -35,6 +35,11 @@ const (
 	CloseBadProtocol = 4003 // unsupported protocol version
 	CloseDuplicate   = 4004 // another live connection holds this node id
 	CloseAuthTimeout = 4005 // no hello within the authentication deadline
+
+	// CloseHeartbeatLost is sent by the node, not this side: two heartbeats
+	// went unanswered so it is reconnecting. Log it; do not hold it against
+	// the node.
+	CloseHeartbeatLost = 4006
 )
 
 // Frame discriminants.

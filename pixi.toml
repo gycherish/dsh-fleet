@@ -27,6 +27,9 @@ postgresql = ">=18,<19"
 install = { cmd = "pnpm install", cwd = "dsh" }
 build = { cmd = "pnpm run build", cwd = "dsh", depends-on = ["install"] }
 typecheck = { cmd = "pnpm exec tsc -p tsconfig.json --noEmit", cwd = "dsh", depends-on = ["install"] }
+# Runs against lib/, so build first. No test framework: node --test is enough
+# for the handful of pure functions worth pinning here.
+test = { cmd = "node --test test/*.test.mjs", cwd = "dsh", depends-on = ["build"] }
 
 # ── mobile end-to-end ────────────────────────────────────────────────────────
 #

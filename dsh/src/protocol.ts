@@ -28,6 +28,13 @@ export const CloseCode = {
   DUPLICATE: 4004,
   /** The node did not authenticate within the control plane's deadline. */
   AUTH_TIMEOUT: 4005,
+  /**
+   * Sent by the node: two heartbeats went unanswered, so it is reconnecting.
+   *
+   * The only code that travels node to control plane. It reports a dead peer,
+   * not a rejected one.
+   */
+  HEARTBEAT_LOST: 4006,
 } as const
 
 /** One close code value. */

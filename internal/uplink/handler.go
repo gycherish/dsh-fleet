@@ -158,5 +158,10 @@ func closeReason(err error) string {
 	if err == nil {
 		return "clean"
 	}
+	// The one code a node sends us. Naming it keeps a routine reconnect from
+	// reading like a fault in the log.
+	if websocket.CloseStatus(err) == envelope.CloseHeartbeatLost {
+		return "node lost the heartbeat; it will reconnect"
+	}
 	return err.Error()
 }
