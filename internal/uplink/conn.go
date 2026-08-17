@@ -29,6 +29,14 @@ const (
 	// Bound on one inbound frame. The largest legitimate frame is a data chunk
 	// at maxChunkBytes, inflated by base64 and JSON escaping.
 	readLimit = 2 * 1024 * 1024
+
+	// How long one frame may take to reach the wire.
+	//
+	// This is the only deadline the write path honours, deliberately: see the
+	// note in write(). Generous, because blowing it closes the connection and
+	// takes every stream on it down, and a write that cannot finish in this
+	// long against a live peer means the peer is already gone.
+	writeTimeout = 30 * time.Second
 )
 
 // Response is one node answer: the status line plus a streaming body.
@@ -471,7 +479,22 @@ func (c *Conn) write(ctx context.Context, frame any) error {
 	// the heartbeat and every request goroutine reach this method.
 	c.writeM.Lock()
 	defer c.writeM.Unlock()
-	return c.ws.Write(ctx, websocket.MessageText, raw)
+
+	// The caller's cancellation must not reach this Write.
+	//
+	// websocket.Write closes the whole connection when its context ends
+	// mid-frame — it has to, because a half-written frame leaves the stream
+	// unparseable. But `ctx` here is usually the browser's request context, so
+	// one visitor closing a tab at the wrong instant would tear down the
+	// multiplexed uplink and every other session on that machine with it. That
+	// is not hypothetical: it dropped this node twice during a test run, and a
+	// phone cancels requests every time its browser is backgrounded.
+	//
+	// Cancellation is still honoured, just after the frame is on the wire:
+	// callers select on ctx.Done() and send a `cancel` frame.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	defer cancel()
+	return c.ws.Write(writeCtx, websocket.MessageText, raw)
 }
 
 func (c *Conn) lookup(id string) *pending {
