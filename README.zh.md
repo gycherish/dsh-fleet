@@ -31,7 +31,25 @@
 
 `dsh-fleet` 补上这一层，并顺带给你多机视图。它不 fork dsh——节点插件是一个普通的 Cordis 插件，挂在 dsh 本来就设计成传输无关的网关上。
 
-Pre-alpha。还没有 TLS，也没有限流，对外暴露前请在前面放一个终止 TLS 的反向代理；在那之前 `DSHF_BIND` 会把它锁在 loopback 上。
+Pre-alpha，还没有限流。
+
+## HTTPS 是必需的，不是建议
+
+浏览器把 `crypto.randomUUID` 等安全上下文 API 卡在 HTTPS 之后，只豁免 loopback。dsh 客户端要用它们，所以用 `http://192.168.x.x` 打开的控制台，设置页会直接报错——而同一份构建在本机走 `127.0.0.1` 一切正常，这正是它容易被漏掉的原因。
+
+推荐用反向代理终止 TLS，dshf 自己就不需要证书了。[`deploy/Caddyfile.example`](deploy/Caddyfile.example) 已端到端验证过（含节点上行和两条事件下行），[`deploy/nginx.conf.example`](deploy/nginx.conf.example) 覆盖同样的点但**未经验证**。
+
+```caddy
+fleet.example.com {
+	reverse_proxy 127.0.0.1:8080 {
+		transport http { read_timeout 0 }
+	}
+}
+```
+
+`DSHF_PUBLIC_URL` 要设成**浏览器实际输入的地址**（它决定 cookie 作用域和 Secure 标志），`DSHF_LISTEN` 留在 loopback。
+
+局域网没有公网域名时，`dshf cert` 会签一张覆盖本机各地址的自签名证书，配 `DSHF_TLS_CERT` / `DSHF_TLS_KEY` 直接用。手机首次会弹一次警告，点继续之后 origin 就是安全上下文了。
 
 ## 快速开始
 

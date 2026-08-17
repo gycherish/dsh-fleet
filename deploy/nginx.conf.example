@@ -1,0 +1,64 @@
+# dsh-fleet behind nginx.
+#
+# NOT VERIFIED against a running stack, unlike Caddyfile.example, which was.
+# The directives below are the ones this application specifically needs; treat
+# the rest of your nginx configuration as your own.
+#
+# Run dshf as plain HTTP on loopback beside this:
+#
+#   DSHF_LISTEN=127.0.0.1:8080
+#   DSHF_PUBLIC_URL=https://fleet.example.com     # what the browser types
+#
+# DSHF_PUBLIC_URL decides cookie scope and the Secure flag, so it must be the
+# public address and scheme, not the one dshf binds.
+
+# The Connection header a proxied upgrade needs is "upgrade" for a WebSocket
+# handshake and "close" otherwise. Sending "upgrade" unconditionally breaks
+# ordinary keep-alive; this map picks per request.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    # http2 is deliberately absent. Browsers reach WebSockets over HTTP/2 only
+    # through RFC 8441 Extended CONNECT, which many builds do not proxy; every
+    # event downlink here is a WebSocket, so HTTP/1.1 is the safe floor.
+    server_name fleet.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/fleet.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fleet.example.com/privkey.pem;
+
+    # A session export streams a whole archive; capping the body at nginx's
+    # 1 MiB default would also cap what can be uploaded into a session.
+    client_max_body_size 64m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+
+        # ── the three lines that decide whether this works at all ──
+        #
+        # Without them the upgrade never reaches dshf: /uplink carries every
+        # node and /api/events.mux carries every assistant token, so the
+        # console loads, renders, and then never updates.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # nginx closes an idle proxied connection after 60s by default, which
+        # severs a downlink that has simply had nothing to say. These streams
+        # are meant to live for the whole session.
+        proxy_read_timeout  1h;
+        proxy_send_timeout  1h;
+
+        # Buffering holds a streamed response until it completes, which for an
+        # assistant reply means the user sees nothing and then everything.
+        proxy_buffering off;
+    }
+}

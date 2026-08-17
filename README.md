@@ -31,7 +31,25 @@ Because it has no authentication. dsh's own documentation is explicit:
 
 `dsh-fleet` supplies that layer, and the multi-machine view along with it. It does not fork dsh: the node plugin is an ordinary Cordis plugin over the gateway dsh already designed to be transport-agnostic.
 
-Pre-alpha. There is no TLS and no rate limiting yet, so put a terminating proxy in front before exposing this anywhere; `DSHF_BIND` keeps it on loopback until you do.
+Pre-alpha, and no rate limiting yet.
+
+## HTTPS is required, not recommended
+
+Browsers gate `crypto.randomUUID` and the rest of the secure-context APIs on HTTPS, exempting only loopback. The dsh client calls them, so a console reached at `http://192.168.x.x` serves a UI whose settings pages fail outright — while the same build works from the host over `127.0.0.1`, which is how this gets missed.
+
+Terminating TLS at a reverse proxy is the recommended arrangement; dshf then needs no certificate of its own. [`deploy/Caddyfile.example`](deploy/Caddyfile.example) is verified end to end, including the node uplink and both event downlinks. [`deploy/nginx.conf.example`](deploy/nginx.conf.example) covers the same ground and is not.
+
+```caddy
+fleet.example.com {
+	reverse_proxy 127.0.0.1:8080 {
+		transport http { read_timeout 0 }
+	}
+}
+```
+
+Set `DSHF_PUBLIC_URL` to the address the browser types — it decides cookie scope and the Secure flag — and leave `DSHF_LISTEN` on loopback.
+
+For a LAN with no public name, `dshf cert` mints a self-signed certificate covering this host's addresses and `DSHF_TLS_CERT` / `DSHF_TLS_KEY` serve with it. A phone shows a warning once; accepting it is enough to make the origin secure.
 
 ## Quick start
 

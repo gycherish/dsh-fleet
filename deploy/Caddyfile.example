@@ -1,0 +1,54 @@
+# dsh-fleet behind Caddy.
+#
+# The control plane needs no TLS of its own in this arrangement: the browser's
+# origin is what has to be HTTPS, because that is what makes it a secure
+# context. Without one the dsh client has no crypto.randomUUID and its settings
+# pages fail.
+#
+# Run dshf as plain HTTP on loopback beside this:
+#
+#   DSHF_LISTEN=127.0.0.1:8080
+#   DSHF_PUBLIC_URL=https://fleet.example.com      # the address the browser types
+#
+# DSHF_PUBLIC_URL decides cookie scope and the Secure flag, so it must be the
+# public address and scheme, not the one dshf binds.
+
+# ── a real domain: nothing else to do ────────────────────────────────────────
+#
+# Caddy obtains and renews the certificate itself, so phones see no warning and
+# nobody installs a root CA anywhere.
+
+fleet.example.com {
+	# reverse_proxy forwards WebSocket upgrades with no extra directives. That
+	# matters more here than it looks: /uplink carries every node, and
+	# /api/events.mux and /api/events.host carry every assistant token. A proxy
+	# that forwards ordinary requests but drops upgrades yields a console that
+	# loads, renders, and then never updates.
+	reverse_proxy 127.0.0.1:8080 {
+		# No read timeout. The node uplink and both browser downlinks are
+		# long-lived and may idle; a deadline here severs them mid-session.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+
+# ── a LAN address, no public DNS ─────────────────────────────────────────────
+#
+# `tls internal` signs with Caddy's own CA. That still produces a secure
+# context, which is the requirement — but a phone shows a warning until it
+# trusts that CA, exactly like the certificate `dshf cert` mints. Accepting the
+# warning is enough to make the origin secure.
+#
+# Swap the address for your own; it must match DSHF_PUBLIC_URL.
+
+# https://192.168.1.227:9443 {
+# 	tls internal
+# 	reverse_proxy 127.0.0.1:8080 {
+# 		transport http {
+# 			read_timeout 0
+# 			write_timeout 0
+# 		}
+# 	}
+# }
