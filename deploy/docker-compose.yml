@@ -51,6 +51,9 @@ services:
       # Bootstrap admin, created once on an empty users table.
       DSHF_ADMIN_USER: ${DSHF_ADMIN_USER:-admin}
       DSHF_ADMIN_PASSWORD: ${DSHF_ADMIN_PASSWORD:?set DSHF_ADMIN_PASSWORD in .env}
+      # How much of dsh's loopback-pinned method set to forward: none, read,
+      # or full. See .env.example.
+      DSHF_PRIVILEGED_ACCESS: ${DSHF_PRIVILEGED_ACCESS:-read}
       DSHF_LOG_LEVEL: ${DSHF_LOG_LEVEL:-info}
     ports:
       - "${DSHF_BIND:-127.0.0.1}:8080:8080"

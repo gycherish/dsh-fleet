@@ -96,7 +96,7 @@ pixi provides Node, pnpm, and a local PostgreSQL, so the inner loop needs no con
 ```sh
 pixi install
 pixi run pg-init && pixi run pg-start && pixi run pg-create   # once
-pixi run typecheck                                            # the node plugin
+pixi run typecheck && pixi run test                           # the node plugin
 go run ./cmd/dshf serve                                       # the control plane
 ```
 
@@ -107,6 +107,8 @@ The node plugin builds **against a local harness checkout**, expected as `deepse
 ## Design note
 
 The control plane **never parses dsh business data**. It forwards opaque frames, correlates request ids, and applies its own access policy. Because it does not understand dsh's API, a dsh upgrade does not require a control-plane release.
+
+That policy has one knob. dsh pins a set of methods to loopback inside its own browser carrier, and a custom carrier has to decide for itself: `DSHF_PRIVILEGED_ACCESS` defaults to `read`, so settings and presets are readable but nothing can be changed from a remote browser. `full` also allows credential writes, settings edits, and the methods that act on the machine's own desktop.
 
 A second `fleet` namespace carries this project's own methods — node telemetry, file browsing — implemented by the plugin directly against Cordis services. That half is ours, so it does not move when dsh does.
 

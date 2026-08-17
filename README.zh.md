@@ -96,7 +96,7 @@ pixi 负责 Node、pnpm 和一个本地 PostgreSQL，所以开发时不需要容
 ```sh
 pixi install
 pixi run pg-init && pixi run pg-start && pixi run pg-create   # 首次
-pixi run typecheck                                            # 节点插件
+pixi run typecheck && pixi run test                           # 节点插件
 go run ./cmd/dshf serve                                       # 控制面
 ```
 
@@ -107,6 +107,8 @@ go run ./cmd/dshf serve                                       # 控制面
 ## 设计要点
 
 控制面**不解析任何 dsh 的业务数据**。它转发不透明的帧、关联请求 id、执行自己的访问策略，仅此而已。正因为它不认识 dsh 的接口，dsh 升级时它不需要跟着发版。
+
+这条策略只有一个开关。dsh 在自己的浏览器载体里把一批方法钉死在 loopback 上，换成别的载体就得自己决定放行到哪一步：`DSHF_PRIVILEGED_ACCESS` 默认 `read`，设置和预设读得到，但远端浏览器改不动任何东西。`full` 才额外放开凭据写入、设置修改，以及那些会动到机器本机桌面的方法。
 
 协议里另有一个 `fleet` 命名空间，是本项目自己的方法（节点遥测、文件浏览等），由节点插件直接调用 Cordis 服务实现。这一半是我们自己的，不随 dsh 变动。
 
