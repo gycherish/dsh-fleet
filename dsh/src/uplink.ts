@@ -2,17 +2,15 @@
  * The uplink: one outbound WebSocket to the control plane, and the frame pump
  * that serves requests over it.
  *
- * The node dials out, so it needs no inbound port and works behind NAT. The
- * `dsh` namespace is served by handing the request to
- * `toFetchHandler(ctx.apiProxy)` — dsh's own carrier adapter — which is why
- * this file contains no knowledge of any dsh RPC method and does not move when
- * the harness wire does.
+ * The node dials out, so it needs no inbound port and works behind NAT. A
+ * `dsh` request is replayed verbatim against this node's own web server, so
+ * this file contains no knowledge of any dsh route or RPC method and does not
+ * move when the harness wire does.
  *
  * @module @dsh-fleet/node/uplink
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import {
   CloseCode,
   PROTOCOL_VERSION,
@@ -62,9 +60,6 @@ const FATAL_CLOSE: ReadonlySet<number> = new Set([
   CloseCode.BAD_PROTOCOL,
 ])
 
-/** Origin for the synthetic `Request` handed to the fetch handler. */
-const SYNTHETIC_ORIGIN = 'http://dsh-fleet.node'
-
 /**
  * Owns one logical connection to the control plane across reconnects.
  *
@@ -83,14 +78,11 @@ export class Uplink {
   private attempt = 0
   private stopped = false
   private readonly startedAt = Date.now()
-  private readonly fetchApi: { fetch: typeof fetch }
 
   constructor(
     private readonly ctx: Context,
     private readonly options: UplinkOptions,
-  ) {
-    this.fetchApi = toFetchHandler(ctx.apiProxy)
-  }
+  ) {}
 
   /** Begin connecting, and keep reconnecting until {@link stop} is called. */
   start(): void {
@@ -282,20 +274,24 @@ export class Uplink {
       init.body = decodePayload(frame.body)
     }
 
-    // `/api` is the gateway; everything else is the browser application.
+    // Everything goes to this node's own HTTP server, `/api` included.
     //
-    // The two take different routes because they are served by different
-    // things. `ctx.apiProxy` is the transport-agnostic gateway, reachable
-    // in-process. The frontend is served by the webserver's fallback seat,
-    // which `toFetchHandler` knows nothing about — so asset requests go out to
-    // this node's own HTTP server, which already owns SPA fallback, the boot
-    // manifest injected into index.html, and `/plugins/<id>/client.js`.
+    // Calling `ctx.apiProxy` in-process looks more direct and is wrong: `/api`
+    // is a COMPOSITE handler. The Typert gateway claims its Remote endpoints
+    // first (`/api/pluginInventory/list`, `/api/dynamicCordisRunner/*`, the
+    // goal and feedback domains) and only unclaimed ones fall through to the
+    // API Proxy. A carrier wired straight to the proxy answers 404 for that
+    // whole surface -- which is exactly what the mobile suite caught.
     //
-    // Reimplementing any of that here would mean reimplementing it wrongly.
-    const response = frame.path.startsWith('/api/')
-      ? await this.fetchApi.fetch(new Request(`${SYNTHETIC_ORIGIN}${frame.path}`, init))
-      : await fetch(new URL(frame.path, this.options.localWebUrl), init)
-
+    // The same reasoning covers the frontend: SPA fallback, the boot manifest
+    // injected into index.html, and `/plugins/<id>/client.js` all live on the
+    // webserver's fallback seat. One hop over loopback buys the complete,
+    // correct surface instead of an approximation of two of its parts.
+    //
+    // The request carries no `Origin` and no Fetch Metadata, and its Host is
+    // loopback, so dsh's `/api` trust fence admits it. The control plane's own
+    // gate remains the boundary that matters.
+    const response = await fetch(new URL(frame.path, this.options.localWebUrl), init)
     await this.stream(frame.id, response, signal)
   }
 

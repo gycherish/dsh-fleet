@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-fleet/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile-viewport end-to-end checks against a running control plane",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

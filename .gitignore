@@ -12,6 +12,10 @@ node_modules/
 dsh/lib/
 *.tsbuildinfo
 
+# Playwright run artifacts
+test-results/
+playwright-report/
+
 # pixi environment and the local development database
 .pixi/
 .devdata/

@@ -1,17 +1,19 @@
 /**
- * `@dsh-fleet/node` — serves this machine's dsh `/api` surface to a dsh-fleet
- * control plane over one outbound WebSocket.
+ * `@dsh-fleet/node` — serves this machine's whole dsh web surface to a
+ * dsh-fleet control plane over one outbound WebSocket.
  *
- * The plugin is a second carrier for `ctx.apiProxy`. dsh's own HTTP carrier
- * (`toFetchHandler` behind the `/api` route) is the first; the gateway is
- * transport-agnostic by design, so nothing here forks or patches the harness.
+ * Requests are replayed against this node's own HTTP server rather than
+ * against `ctx.apiProxy` directly. `/api` is a composite handler: the Typert
+ * gateway claims its Remote endpoints and only the rest fall through to the
+ * proxy, so a carrier wired straight to the proxy silently loses that surface.
+ * Replaying the request keeps the plugin ignorant of every dsh route, which is
+ * what stops it moving when the harness does.
  *
- * One consequence deserves stating plainly: this carrier does **not** pass
- * through `dsh-client-connection`'s `/api` route, so the browser-trust fence
- * and its loopback pin on the privileged method set (`settings.*`,
+ * One consequence deserves stating plainly: those requests reach dsh's `/api`
+ * fence as loopback, so its pin on the privileged method set (`settings.*`,
  * `credentials.*`, `host.pickDirectory`, `host.openPath`, agent-preset
- * authoring) are not applied here. Re-gating those is the control plane's
- * responsibility, and it is a requirement, not a nicety.
+ * authoring) does not restrain a remote caller. Re-gating them is the control
+ * plane's responsibility, and it is a requirement, not a nicety.
  *
  * This module uses NAMED EXPORTS ONLY. A default export hides loader metadata
  * such as `inject` — see dsh's `docs/postmortem/0001-acp-default-export-drops-inject.md`.
@@ -22,7 +24,6 @@
 import { createRequire } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-host-apiproxy'
 import { Uplink } from './uplink.ts'
 
 export { PROTOCOL_VERSION } from './protocol.ts'
@@ -32,11 +33,16 @@ export type { Snapshot, EntrySnapshot } from './telemetry.ts'
 export const name = 'dsh-fleet-node'
 
 /**
- * The gateway is the only hard requirement: without it there is nothing to
- * carry. `fs` is read through `ctx.get()` at the use site instead, so a node
- * composing no filesystem provider still serves the `dsh` namespace.
+ * `webRuntime` is the readiness signal: the web surface provides it only after
+ * its HTTP server has bound. Waiting on it means the uplink never announces a
+ * node whose own server would refuse the first request, and it keeps this
+ * plugin off a headless composition, which has no web UI to remote in the
+ * first place.
+ *
+ * `fs` is read through `ctx.get()` at the use site instead, so a node without
+ * a filesystem provider still serves everything but `fleet.file.*`.
  */
-export const inject = ['apiProxy']
+export const inject = ['webRuntime']
 
 /** Plugin configuration. */
 export interface Config {
@@ -168,7 +174,7 @@ function warnOnUnreachableDirectoryPicker(ctx: Context): void {
 
 /**
  * Mount the uplink for this node.
- * @param ctx - the plugin context, with `apiProxy` ready.
+ * @param ctx - the plugin context, with the web surface already bound.
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config): void {

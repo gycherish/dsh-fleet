@@ -28,6 +28,27 @@ install = { cmd = "pnpm install", cwd = "dsh" }
 build = { cmd = "pnpm run build", cwd = "dsh", depends-on = ["install"] }
 typecheck = { cmd = "pnpm exec tsc -p tsconfig.json --noEmit", cwd = "dsh", depends-on = ["install"] }
 
+# ── mobile end-to-end ────────────────────────────────────────────────────────
+#
+# These drive real engines — WebKit for the iPhone profile, Chromium for the
+# Pixel — against a stack you already brought up. They do not start one: the
+# flows need PostgreSQL, the control plane, and a connected node, and a fixture
+# that owned all three would be the part that breaks.
+#
+# Point DSHF_BASE_URL at the stack, then `pixi run e2e`.
+
+[tasks.e2e-install]
+cmd = "pnpm install && pnpm exec playwright install chromium webkit"
+cwd = "test/e2e"
+description = "Install Playwright and its browser builds (run once)."
+env = { PLAYWRIGHT_BROWSERS_PATH = ".devdata/playwright" }
+
+[tasks.e2e]
+cmd = "pnpm exec playwright test"
+cwd = "test/e2e"
+description = "Run the mobile-viewport checks against a running control plane."
+env = { PLAYWRIGHT_BROWSERS_PATH = ".devdata/playwright" }
+
 # ── local PostgreSQL for development ─────────────────────────────────────────
 #
 # Port 5433, not 5432, so this never collides with a system PostgreSQL. Trust
