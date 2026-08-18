@@ -67,7 +67,7 @@ The consequence is that a socket is anonymous between `open` and `hello`. The co
     "pluginVersion": "0.1.0",
     "cwd": "D:/repo"
   },
-  "caps": ["dsh", "fleet.telemetry", "fleet.file"]
+  "caps": ["dsh", "fleet.telemetry"]
 }
 ```
 
@@ -139,7 +139,7 @@ Both directions must stay inside `1000` or `3000`–`4999`. Those are the only c
 | `id` | Correlation id, minted by the control plane, unique per connection. |
 | `ns` | `"dsh"` or `"fleet"`. |
 | `method` | HTTP verb. `dsh` uses `GET`, `HEAD`, `POST`; `fleet` always `POST`. |
-| `path` | For `dsh`, the exact `/api/…` path **including query string**. For `fleet`, a method name (`fleet.file.read`). |
+| `path` | For `dsh`, the exact `/api/…` path **including query string**. For `fleet`, a method name. |
 | `headers` | Optional. Lower-cased names. |
 | `body` | Optional. See [Payload encoding](#payload-encoding). |
 
@@ -150,6 +150,8 @@ Replayed against the server rather than handed to `ctx.apiProxy` directly, becau
 The node refuses exactly one path family: its own setup page. That page can change which control plane the machine answers to, and both a local request and a forwarded one arrive at the server as loopback, so the node is the only place that can tell them apart. A `req` for it answers `err` / `denied`.
 
 **`ns: "fleet"` handling is ours**: the node dispatches on `path` against its own method table.
+
+That table is currently **empty**, and the namespace is kept as the seam rather than the feature. It held one family, `fleet.file.*`, for reading and listing files on a node under a configured root allowlist. It was removed after the proxied dsh UI turned out to deliver the same thing — a machine's files and workspaces, through that machine's own interface — leaving ours advertised in `caps`, implemented, and called by nobody. Anything asked of `fleet` today answers `err` / `unsupported`.
 
 ### `cancel` (control plane → node)
 

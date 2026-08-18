@@ -14,9 +14,6 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: link:../../deepseek-harness/vendor/loader
         version: link:../../deepseek-harness/vendor/loader
-      '@deepseek-ai/dsh-fs':
-        specifier: link:../../deepseek-harness/packages/fs/fs
-        version: link:../../deepseek-harness/packages/fs/fs
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: link:../../deepseek-harness/packages/host/apiproxy
         version: link:../../deepseek-harness/packages/host/apiproxy

@@ -24,7 +24,6 @@ import {
   type ReqFrame,
   type WelcomeFrame,
 } from './protocol.ts'
-import { FleetError, dispatchFleet, type FileAccessPolicy } from './fleet.ts'
 import { SETUP_PATH } from './setup.ts'
 import { buildSnapshot, dshVersion } from './telemetry.ts'
 
@@ -45,8 +44,6 @@ export interface UplinkOptions {
   maxChunkBytes: number
   /** Origin of this node's own `dsh web` server, for asset requests. */
   localWebUrl: string
-  /** File-family confinement, passed through to the `fleet` dispatcher. */
-  fileAccess: FileAccessPolicy
 }
 
 /** Runtime parameters adopted from `welcome` until the connection ends. */
@@ -194,7 +191,7 @@ export class Uplink {
           pluginVersion: this.options.pluginVersion,
           cwd: process.cwd(),
         },
-        caps: ['dsh', 'fleet.telemetry', 'fleet.file'],
+        caps: ['dsh', 'fleet.telemetry'],
       })
     })
 
@@ -323,14 +320,12 @@ export class Uplink {
       if (frame.ns === 'dsh') {
         await this.serveDsh(frame, controller.signal)
       } else if (frame.ns === 'fleet') {
-        await this.serveFleet(frame, controller.signal)
+        this.serveFleet(frame)
       } else {
         this.fail(frame.id, 'unsupported', `unknown namespace "${String(frame.ns)}"`)
       }
     } catch (error: unknown) {
-      const code: ErrorCode = error instanceof FleetError
-        ? error.code
-        : controller.signal.aborted ? 'cancelled' : 'internal'
+      const code: ErrorCode = controller.signal.aborted ? 'cancelled' : 'internal'
       this.fail(frame.id, code, error instanceof Error ? error.message : String(error))
     } finally {
       this.inFlight.delete(frame.id)
@@ -414,15 +409,18 @@ export class Uplink {
     await this.stream(frame.id, response, signal)
   }
 
-  private async serveFleet(frame: ReqFrame, signal: AbortSignal): Promise<void> {
-    const body: unknown = frame.body === undefined
-      ? undefined
-      : JSON.parse(new TextDecoder().decode(decodePayload(frame.body)))
-    const result = await dispatchFleet(this.ctx, this.options.fileAccess, frame.path, body, signal)
-    const encoded = new TextEncoder().encode(JSON.stringify(result.value))
-    this.send({ t: 'head', id: frame.id, status: result.status, headers: { 'content-type': 'application/json' } })
-    this.send({ t: 'data', id: frame.id, seq: 0, body: encodePayload(encoded, true) })
-    this.send({ t: 'end', id: frame.id, chunks: 1 })
+  /**
+   * Answer a `fleet` request.
+   *
+   * The namespace is this project's own extension point and currently serves
+   * no methods: the one family it had, `fleet.file.*`, was removed once the
+   * proxied dsh UI turned out to deliver the same thing — a machine's files and
+   * workspaces — through the machine's own interface rather than a second one
+   * of ours. Keeping the seam costs these lines; keeping the family cost a
+   * confinement policy nobody exercised.
+   */
+  private serveFleet(frame: ReqFrame): void {
+    this.fail(frame.id, 'unsupported', `unknown fleet method: ${frame.path}`)
   }
 
   /**

@@ -19,7 +19,7 @@ func TestClassify(t *testing.T) {
 		{"/api/session.list", envelope.NsDSH, "session.list"},
 		{"/api/events.mux", envelope.NsDSH, "events.mux"},
 		{"/api/session.export?sessionId=x", envelope.NsDSH, "session.export"},
-		{"/fleet/fleet.file.read", envelope.NsFleet, "fleet.file.read"},
+		{"/fleet/anything", envelope.NsFleet, "anything"},
 		{"/", envelope.NsDSH, ""},
 		{"/assets/index-abc.js", envelope.NsDSH, "assets/index-abc.js"},
 	}

@@ -39,9 +39,6 @@ test('the connection fields are optional but the tuning still has defaults', () 
   assert.equal(config.localWebUrl, 'http://127.0.0.1:3080')
   assert.equal(config.reconnectBaseMs, 1_000)
   assert.equal(config.reconnectMaxMs, 30_000)
-  // Empty by design: reads are not confined by ctx.fs, so an unconfigured root
-  // list must not become an arbitrary-file-read surface.
-  assert.deepEqual(config.fileRoots, [])
 })
 
 test('the token is marked secret so a settings form masks it', () => {

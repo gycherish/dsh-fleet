@@ -42,8 +42,8 @@ export const name = 'dsh-fleet-node'
  * plugin off a headless composition, which has no web UI to remote in the
  * first place.
  *
- * `fs` is read through `ctx.get()` at the use site instead, so a node without
- * a filesystem provider still serves everything but `fleet.file.*`.
+ * The plugin needs nothing else: it forwards to this machine's own server and
+ * keeps no state of its own beyond the setup page's store.
  */
 export const inject = ['webRuntime']
 
@@ -90,16 +90,6 @@ export interface Config {
    * Change it when the surface binds a non-default port.
    */
   localWebUrl: string
-  /**
-   * Absolute directories `fleet.file.*` may read. EMPTY DISABLES THE FAMILY.
-   *
-   * The default is empty on purpose: `ctx.fs` confines mutations, not reads, so
-   * an unconfigured root list would make a remote file browser an
-   * arbitrary-file-read surface on this machine.
-   */
-  fileRoots: string[]
-  /** Inclusive cap on one `fleet.file.read` response, in bytes. */
-  maxReadBytes: number
 }
 
 /**
@@ -136,12 +126,6 @@ export const Config: z<Config> = z.object({
   localWebUrl: z.string()
     .description('This machine\'s own dsh web origin. Change it only if the surface binds a non-default port.')
     .default('http://127.0.0.1:3080'),
-  fileRoots: z.array(z.string())
-    .description('Absolute directories the console may browse. EMPTY DISABLES remote file access, which is the safe default.')
-    .default([]),
-  maxReadBytes: z.natural().min(1_024)
-    .description('Cap on one remote file read, in bytes.')
-    .default(1_048_576),
 })
 
 /**
@@ -384,9 +368,6 @@ function assertUsable(config: Config): void {
   if (local.protocol !== 'http:' && local.protocol !== 'https:') {
     throw new Error(`dsh-fleet-node: localWebUrl must be http or https, got ${local.protocol}`)
   }
-  for (const root of config.fileRoots) {
-    if (root.trim().length === 0) throw new Error('dsh-fleet-node: fileRoots must not contain blank entries')
-  }
 }
 
 /**
@@ -455,7 +436,6 @@ export function apply(ctx: Context, config: Config): void {
       reconnectMaxMs: config.reconnectMaxMs,
       maxChunkBytes: config.maxChunkBytes,
       localWebUrl: config.localWebUrl,
-      fileAccess: { roots: config.fileRoots, maxReadBytes: config.maxReadBytes },
     })
     uplink.start()
     return () => uplink.stop()
