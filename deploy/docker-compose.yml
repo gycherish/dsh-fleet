@@ -54,6 +54,8 @@ services:
       # How much of dsh's loopback-pinned method set to forward: none, read,
       # or full. See .env.example.
       DSHF_PRIVILEGED_ACCESS: ${DSHF_PRIVILEGED_ACCESS:-full}
+      # Days of node telemetry to keep; 0 keeps everything. See .env.example.
+      DSHF_TELEMETRY_RETENTION_DAYS: ${DSHF_TELEMETRY_RETENTION_DAYS:-14}
       DSHF_LOG_LEVEL: ${DSHF_LOG_LEVEL:-info}
     ports:
       - "${DSHF_BIND:-127.0.0.1}:8080:8080"

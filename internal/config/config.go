@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the validated runtime configuration.
@@ -40,6 +42,13 @@ type Config struct {
 	// browser plane may reach: none, read, or full. Defaults to full, so the
 	// console can actually drive the machine; narrow it for a read-only one.
 	PrivilegedAccess string
+	// TelemetryRetention is how long node snapshots are kept.
+	//
+	// Bounded rather than forever: every node appends a row every thirty
+	// seconds and nothing reads the history back, so the table would quietly
+	// become the largest thing in the database. Zero disables the trim for a
+	// deployment that wants to keep everything and manage it elsewhere.
+	TelemetryRetention time.Duration
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 }
@@ -94,6 +103,13 @@ func Load() (*Config, error) {
 		return nil, errors.New("config: DSHF_PUBLIC_URL must include a host")
 	}
 	cfg.PublicURL = parsed
+
+	keep := envOr("DSHF_TELEMETRY_RETENTION_DAYS", "14")
+	days, err := strconv.Atoi(strings.TrimSpace(keep))
+	if err != nil || days < 0 {
+		return nil, fmt.Errorf("config: DSHF_TELEMETRY_RETENTION_DAYS must be a whole number of days, got %q", keep)
+	}
+	cfg.TelemetryRetention = time.Duration(days) * 24 * time.Hour
 
 	return cfg, nil
 }

@@ -297,3 +297,39 @@ func isUniqueViolation(err error) bool {
 	var pgErr interface{ SQLState() string }
 	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
 }
+
+// PruneTelemetry drops snapshots older than the retention window.
+//
+// The table is append-only at one row per node every thirty seconds — about a
+// million rows per node per year, and eighteen megabytes in the first two days
+// of a three-node development fleet. Nothing reads the history yet; the console
+// reads the latest snapshot, which is denormalised onto the node row. So this
+// exists to stop a table nobody queries from being the largest thing in the
+// database.
+//
+// Deleted in batches so a first run against a long-neglected table does not
+// take one long lock.
+func (s *Store) PruneTelemetry(ctx context.Context, keep time.Duration) (int64, error) {
+	const q = `
+		DELETE FROM node_telemetry
+		WHERE ctid IN (
+			SELECT ctid FROM node_telemetry WHERE ts < now() - $1::interval LIMIT 10000
+		)`
+	var total int64
+	for {
+		tag, err := s.pool.Exec(ctx, q, keep.String())
+		if err != nil {
+			return total, fmt.Errorf("nodes: cannot prune telemetry: %w", err)
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < 10000 {
+			return total, nil
+		}
+		// Yield between batches: a purge must never be why a request waits.
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+	}
+}

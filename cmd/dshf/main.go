@@ -281,6 +281,7 @@ func serve(_ []string) error {
 	}
 
 	go purgeSessions(ctx, userStore, logger)
+	go pruneTelemetry(ctx, nodeStore, cfg.TelemetryRetention, logger)
 
 	warnIfInsecureOrigin(cfg, logger)
 
@@ -806,4 +807,42 @@ func auditCmd(args []string) error {
 			verdict, d.Status, d.Path, d.Reason)
 	}
 	return tw.Flush()
+}
+
+// pruneTelemetry keeps the snapshot history bounded.
+//
+// Every node appends one row every thirty seconds and nothing reads them back:
+// the console shows the latest snapshot, denormalised onto the node row. Left
+// alone the table becomes the largest thing in the database — eighteen
+// megabytes in the first two days of a three-machine development fleet — so it
+// is trimmed to a window rather than kept forever or dropped entirely.
+func pruneTelemetry(ctx context.Context, s *nodes.Store, keep time.Duration, log *slog.Logger) {
+	// Once at startup, so a deployment that was down while nodes reported does
+	// not wait an hour to reclaim the space.
+	if keep == 0 {
+		log.Info("telemetry retention disabled; the snapshot history will grow without bound")
+		return
+	}
+	prune := func() {
+		n, err := s.PruneTelemetry(ctx, keep)
+		if err != nil {
+			log.Warn("cannot prune telemetry", "err", err)
+			return
+		}
+		if n > 0 {
+			log.Info("pruned telemetry", "rows", n, "keep", keep.String())
+		}
+	}
+	prune()
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			prune()
+		}
+	}
 }
