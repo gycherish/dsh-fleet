@@ -28,12 +28,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # configure-pages needs this only for `enablement` below.
-      pages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Local references resolve
         # Every path in the site is relative, which is what lets it live under
@@ -55,18 +51,14 @@ jobs:
             exit 1
           fi
 
-      - name: Configure Pages
-        # `enablement` turns Pages on and points it at Actions the first time
-        # this runs, so a fresh clone of this repo deploys without anyone
-        # visiting Settings. If Pages is already enabled against a *branch*,
-        # this cannot override it — switch the source by hand, once.
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs
+          # Off by default since v5, which would silently drop docs/.nojekyll.
+          # Actions deployments do not run Jekyll, so nothing breaks either
+          # way — but the published tree should be the directory in the repo,
+          # not the directory minus whichever files begin with a dot.
+          include-hidden-files: true
 
   deploy:
     name: Deploy
@@ -82,4 +74,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
