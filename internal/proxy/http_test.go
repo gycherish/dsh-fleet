@@ -114,16 +114,57 @@ func TestParseAccess(t *testing.T) {
 }
 
 type recordingAudit struct {
-	node, ns, path string
-	allowed        bool
-	status         int
-	reason         string
-	calls          int
+	user, node, ns, path string
+	allowed              bool
+	status               int
+	reason               string
+	calls                int
 }
 
-func (a *recordingAudit) RecordDecision(node, ns, path string, allowed bool, status int, reason string) {
-	a.node, a.ns, a.path, a.allowed, a.status, a.reason = node, ns, path, allowed, status, reason
+func (a *recordingAudit) RecordDecision(user, node, ns, path string, allowed bool, status int, reason string) {
+	a.user, a.node, a.ns, a.path, a.allowed, a.status, a.reason = user, node, ns, path, allowed, status, reason
 	a.calls++
+}
+
+// A refusal must name who was refused. The column existed from the first
+// migration and nothing filled it, so every row said the boundary had been
+// crossed without saying by whom.
+func TestTheTrailNamesTheActor(t *testing.T) {
+	audit := &recordingAudit{}
+	h := &Handler{
+		Registry:   uplink.NewRegistry(),
+		Log:        discardLogger(),
+		Audit:      audit,
+		SelectNode: func(*http.Request) string { return "devbox" },
+		SelectUser: func(*http.Request) string { return "11111111-2222-3333-4444-555555555555" },
+		Privileged: AccessRead,
+	}
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/credentials.set", nil))
+
+	if audit.user != "11111111-2222-3333-4444-555555555555" {
+		t.Fatalf("recorded user = %q, want the account that was refused", audit.user)
+	}
+	if audit.allowed {
+		t.Fatal("a refusal must be recorded as refused")
+	}
+}
+
+// Nil is a legitimate configuration — a deployment with no session layer — and
+// must record an anonymous decision rather than panicking on the hook.
+func TestNoUserHookRecordsAnonymously(t *testing.T) {
+	audit := &recordingAudit{}
+	h := &Handler{
+		Registry:   uplink.NewRegistry(),
+		Log:        discardLogger(),
+		Audit:      audit,
+		SelectNode: func(*http.Request) string { return "devbox" },
+		Privileged: AccessRead,
+	}
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/credentials.set", nil))
+
+	if audit.calls != 1 || audit.user != "" {
+		t.Fatalf("audit = %+v, want one decision with no actor", audit)
+	}
 }
 
 func TestPrivilegedWriteIsRefusedAndAudited(t *testing.T) {

@@ -62,6 +62,8 @@ func run(args []string) error {
 		return nodeCmd(args[1:])
 	case "user":
 		return userCmd(args[1:])
+	case "audit":
+		return auditCmd(args[1:])
 	case "cert":
 		return certCmd(args[1:])
 	case "version", "--version", "-v":
@@ -90,6 +92,7 @@ Usage:
   dshf user passwd <name>          reset an account's password
   dshf user token add <name>       mint a token that machine can enrol themselves with
   dshf user token ls|revoke        list or withdraw those tokens
+  dshf audit [--node|--user|--denied]  show what the privilege gate decided
   dshf cert [--dir D] [host...]    mint a self-signed certificate for HTTPS
   dshf version                     print the build version
 
@@ -221,6 +224,9 @@ func serve(_ []string) error {
 	mux.Handle("POST "+console.PathPeople, guard.RequireAdmin(http.HandlerFunc(people.Create)))
 	mux.Handle("POST "+console.PathPeople+"/update", guard.RequireAdmin(http.HandlerFunc(people.Update)))
 
+	// The trail this project owns, and until now could not show.
+	mux.Handle("GET "+console.PathAudit, guard.RequireAdmin(&console.AuditPage{Trail: auditor, Log: logger}))
+
 	// ── everything else belongs to the selected machine ──
 	//
 	// The node's application owns the origin root because its client addresses
@@ -238,6 +244,7 @@ func serve(_ []string) error {
 		Audit:       auditor,
 		Privileged:  access,
 		SelectNode:  console.SelectedNode,
+		SelectUser:  console.SelectedUser,
 		NoSelection: http.HandlerFunc(noMachineSelected),
 		// A machine can go down while someone is driving it, so the dead end
 		// still needs a real page even though the chooser now refuses to walk
@@ -752,4 +759,51 @@ func newLogger(level string) *slog.Logger {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
 	slog.SetDefault(logger)
 	return logger
+}
+
+// ── audit ────────────────────────────────────────────────────────────────────
+
+func auditCmd(args []string) error {
+	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
+	node := fs.String("node", "", "only this machine")
+	user := fs.String("user", "", "only this account")
+	denied := fs.Bool("denied", false, "only refusals")
+	limit := fs.Int("limit", 50, "how many lines")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, pool, cancel, err := operatorPool()
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer pool.Close()
+
+	recorder, stop := audit.New(pool, newLogger("warn"))
+	defer stop()
+
+	list, err := recorder.Recent(ctx, audit.Filter{
+		Node: *node, User: *user, DeniedOnly: *denied, Limit: *limit,
+	})
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Println("no decisions recorded")
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "WHEN\tWHO\tMACHINE\tVERDICT\tSTATUS\tMETHOD\tWHY")
+	for _, d := range list {
+		verdict := "allowed"
+		if !d.Allowed {
+			verdict = "REFUSED"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			d.At.Local().Format("01-02 15:04:05"), dash(d.User), dash(d.Node),
+			verdict, d.Status, d.Path, d.Reason)
+	}
+	return tw.Flush()
 }

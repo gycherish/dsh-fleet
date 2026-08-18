@@ -60,7 +60,7 @@ pre {
     </a>
     <nav>
       <a class="btn quiet" href="{{.Prefix}}/console">Machines</a>
-      {{if .Admin}}<a class="btn quiet" href="{{.Prefix}}/people">People</a>{{end}}
+      {{if .Admin}}<a class="btn quiet" href="{{.Prefix}}/audit">Audit</a><a class="btn quiet" href="{{.Prefix}}/people">People</a>{{end}}
       <span class="who">{{.User}}</span>
       <form method="post" action="{{.Prefix}}/logout"><button class="btn quiet" type="submit">Sign out</button></form>
     </nav>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+{{template "head" .}}
+<title>Audit · dsh-fleet</title>
+<style>
+.wrap { max-width: 56rem; margin: 0 auto; }
+header { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.4rem; }
+header .brand { font-size: .95rem; }
+header nav { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
+header .who { font-size: .8rem; color: var(--muted); }
+header form { display: inline; margin: 0; }
+
+h1 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0 0 .2rem; }
+.lede { color: var(--muted); font-size: .88rem; margin: 0 0 1.2rem; }
+
+.filters { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; }
+.filters label { display: flex; flex-direction: column; gap: .3rem; font-size: .74rem; color: var(--muted); }
+.filters input[type=text] {
+  font: inherit; font-size: .85rem; padding: .4rem .55rem; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--sunk); color: var(--ink);
+}
+.filters .check { flex-direction: row; align-items: center; gap: .35rem; font-size: .82rem; padding-bottom: .45rem; }
+
+.rows { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+/* Bounded so the long refusal reasons wrap inside the view instead of
+   pushing every other column off the right edge, which left the one line
+   anyone came here to read scrolled out of sight. */
+td.reason { white-space: normal; color: var(--muted); font-size: .78rem; max-width: 20rem; }
+/* A refusal is the line anyone came here to find, so it carries its own mark
+   rather than only a word in a column. */
+tr.refused td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.verdict { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+.verdict.no { color: var(--danger); font-weight: 700; }
+.verdict.yes { color: var(--muted); }
+.scroll { overflow-x: auto; }
+.empty { padding: 2rem 1.25rem; text-align: center; color: var(--muted); }
+.banner { border-radius: 8px; padding: .55rem .75rem; font-size: .84rem; margin-bottom: 1rem;
+  background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid var(--danger); color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="{{.Prefix}}/console" style="text-decoration:none;color:inherit">
+      <span class="mark" aria-hidden="true">dF</span> dsh-fleet
+    </a>
+    <nav>
+      <a class="btn quiet" href="{{.Prefix}}/console">Machines</a>
+      <a class="btn quiet" href="{{.Prefix}}/people">People</a>
+      <a class="btn quiet" href="{{.Prefix}}/account">Your account</a>
+      <span class="who">{{.User}}</span>
+      <form method="post" action="{{.Prefix}}/logout"><button class="btn quiet" type="submit">Sign out</button></form>
+    </nav>
+  </header>
+
+  <h1>Audit</h1>
+  <p class="lede">What the privilege gate decided. Method names only — request bodies are never recorded.</p>
+
+  {{if .Error}}<p class="banner">{{.Error}}</p>{{end}}
+
+  <form class="filters" method="get" action="{{.Prefix}}/audit">
+    <label>Machine<input type="text" name="node" value="{{.Node}}" placeholder="any"></label>
+    <label class="check"><input type="checkbox" name="denied" {{if .DeniedOnly}}checked{{end}}> Refusals only</label>
+    <button class="btn" type="submit">Filter</button>
+    {{if or .Node .DeniedOnly}}<a class="btn quiet" href="{{.Prefix}}/audit">Clear</a>{{end}}
+  </form>
+
+  <div class="rows">
+    {{if .Rows}}
+    <div class="scroll">
+      <table>
+        <tr><th>When</th><th>Who</th><th>Machine</th><th>Verdict</th><th>Status</th><th>Method</th><th>Why</th></tr>
+        {{range .Rows}}
+        <tr class="{{if .Refused}}refused{{end}}">
+          <td class="mono">{{.When}}</td>
+          <td>{{if .Who}}{{.Who}}{{else}}—{{end}}</td>
+          <td>{{if .Machine}}{{.Machine}}{{else}}—{{end}}</td>
+          <td><span class="verdict {{if .Refused}}no{{else}}yes{{end}}">{{if .Refused}}refused{{else}}allowed{{end}}</span></td>
+          <td class="mono">{{.Status}}</td>
+          <td class="mono">{{.Method}}</td>
+          <td class="reason">{{.Reason}}</td>
+        </tr>
+        {{end}}
+      </table>
+    </div>
+    {{else}}
+    <p class="empty">Nothing recorded yet{{if or .Node .DeniedOnly}} for this filter{{end}}.</p>
+    {{end}}
+  </div>
+</div>
+</body>
+</html>

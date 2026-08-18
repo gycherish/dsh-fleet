@@ -78,3 +78,11 @@ func renderLogin(w http.ResponseWriter, status int, next, message string) {
 		log.Printf("console: cannot render login page: %v", err)
 	}
 }
+
+func renderAudit(w http.ResponseWriter, data auditData) {
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	w.Header().Set("cache-control", "no-store")
+	if err := templates.ExecuteTemplate(w, "audit.html", data); err != nil {
+		log.Printf("console: cannot render the audit page: %v", err)
+	}
+}

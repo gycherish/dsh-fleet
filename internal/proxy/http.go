@@ -116,7 +116,7 @@ func (a Access) refuse(method string) (bool, string) {
 // Auditor records what the gate decided. Bodies are never passed to it: they
 // are opaque by design and may carry prompts, file contents, or secrets.
 type Auditor interface {
-	RecordDecision(nodeID, ns, path string, allowed bool, status int, reason string)
+	RecordDecision(userID, nodeID, ns, path string, allowed bool, status int, reason string)
 }
 
 // Handler forwards a browser request to the node this browser selected.
@@ -132,6 +132,13 @@ type Handler struct {
 	Audit    Auditor
 	// SelectNode resolves which node this request belongs to.
 	SelectNode func(*http.Request) string
+	// SelectUser names the account behind a request, for the audit trail.
+	//
+	// A hook rather than a direct read of the session, so this package stays
+	// unaware of how anyone signs in. Nil records decisions with no actor,
+	// which is what the schema's nullable column already allowed for — and
+	// what every row said before this existed.
+	SelectUser func(*http.Request) string
 	// NoSelection handles a request that named no node, typically by sending
 	// the browser to the chooser.
 	NoSelection http.Handler
@@ -176,7 +183,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			level = AccessFull
 		}
 		if blocked, why := level.refuse(method); blocked {
-			h.record(nodeID, ns, method, false, http.StatusForbidden, why)
+			h.record(r, nodeID, ns, method, false, http.StatusForbidden, why)
 			http.Error(w, why, http.StatusForbidden)
 			return
 		}
@@ -184,7 +191,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	conn, online := h.Registry.Get(nodeID)
 	if !online {
-		h.record(nodeID, ns, method, true, http.StatusBadGateway, "machine is not connected")
+		h.record(r, nodeID, ns, method, true, http.StatusBadGateway, "machine is not connected")
 		if h.Unreachable != nil {
 			h.Unreachable.ServeHTTP(w, r)
 			return
@@ -222,7 +229,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	textual := strings.HasPrefix(r.Header.Get("content-type"), "application/json")
 	resp, err := conn.Do(r.Context(), ns, r.Method, rest, headers, body, textual)
 	if err != nil {
-		h.fail(w, nodeID, ns, method, err)
+		h.fail(w, r, nodeID, ns, method, err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -243,7 +250,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxDocumentBytes))
 		if err == nil {
 			w.WriteHeader(resp.Status)
-			h.record(nodeID, ns, method, true, resp.Status, "")
+			h.record(r, nodeID, ns, method, true, resp.Status, "")
 			_, _ = w.Write(splice(body, h.Inject))
 			return
 		}
@@ -253,7 +260,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(resp.Status)
-	h.record(nodeID, ns, method, true, resp.Status, "")
+	h.record(r, nodeID, ns, method, true, resp.Status, "")
 
 	// Flush per chunk. The event downlinks upgrade rather than stream through
 	// here, but a large `session.export` and any future streaming response
@@ -330,7 +337,7 @@ func isUpgrade(r *http.Request) bool {
 func (h *Handler) bridge(w http.ResponseWriter, r *http.Request, conn *uplink.Conn, nodeID, ns, method, path string) {
 	remote, err := conn.OpenWS(r.Context(), path, nil)
 	if err != nil {
-		h.record(nodeID, ns, method, true, http.StatusBadGateway, "socket bridge failed")
+		h.record(r, nodeID, ns, method, true, http.StatusBadGateway, "socket bridge failed")
 		h.Log.Warn("proxy: cannot bridge socket", "node", nodeID, "path", path, "err", err)
 		http.Error(w, "cannot reach the machine's event stream", http.StatusBadGateway)
 		return
@@ -349,7 +356,7 @@ func (h *Handler) bridge(w http.ResponseWriter, r *http.Request, conn *uplink.Co
 		return
 	}
 	defer func() { _ = client.CloseNow() }()
-	h.record(nodeID, ns, method, true, http.StatusSwitchingProtocols, "")
+	h.record(r, nodeID, ns, method, true, http.StatusSwitchingProtocols, "")
 
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
@@ -393,7 +400,7 @@ func classify(path string) (ns, method string) {
 	return envelope.NsDSH, clean
 }
 
-func (h *Handler) fail(w http.ResponseWriter, nodeID, ns, method string, err error) {
+func (h *Handler) fail(w http.ResponseWriter, r *http.Request, nodeID, ns, method string, err error) {
 	var nodeErr *uplink.RequestError
 	if errors.As(err, &nodeErr) {
 		status := map[string]int{
@@ -405,16 +412,24 @@ func (h *Handler) fail(w http.ResponseWriter, nodeID, ns, method string, err err
 		if status == 0 {
 			status = http.StatusBadGateway
 		}
-		h.record(nodeID, ns, method, true, status, nodeErr.Code)
+		h.record(r, nodeID, ns, method, true, status, nodeErr.Code)
 		http.Error(w, nodeErr.Message, status)
 		return
 	}
-	h.record(nodeID, ns, method, true, http.StatusBadGateway, err.Error())
+	h.record(r, nodeID, ns, method, true, http.StatusBadGateway, err.Error())
 	http.Error(w, "node request failed", http.StatusBadGateway)
 }
 
-func (h *Handler) record(nodeID, ns, method string, allowed bool, status int, reason string) {
-	if h.Audit != nil {
-		h.Audit.RecordDecision(nodeID, ns, method, allowed, status, reason)
+func (h *Handler) record(r *http.Request, nodeID, ns, method string, allowed bool, status int, reason string) {
+	if h.Audit == nil {
+		return
 	}
+	// Without the actor the trail answers "what crossed the boundary" but not
+	// "who pushed it across", which is most of what anyone reads an audit log
+	// for. The column was always there; nothing filled it until now.
+	userID := ""
+	if h.SelectUser != nil {
+		userID = h.SelectUser(r)
+	}
+	h.Audit.RecordDecision(userID, nodeID, ns, method, allowed, status, reason)
 }

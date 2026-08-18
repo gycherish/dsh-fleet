@@ -24,6 +24,9 @@ type Recorder struct {
 }
 
 type entry struct {
+	// userID is the console account that made the request. Empty for anything
+	// that reached the gate without one, which the schema stores as NULL.
+	userID  string
 	nodeID  string
 	ns      string
 	path    string
@@ -49,9 +52,9 @@ func New(pool *pgxpool.Pool, log *slog.Logger) (*Recorder, func()) {
 // A full queue drops the entry with a warning rather than stalling a browser
 // request. Losing an audit row under load is bad; wedging the console is worse,
 // and the dropped-count warning makes the loss visible.
-func (r *Recorder) RecordDecision(nodeID, ns, path string, allowed bool, status int, reason string) {
+func (r *Recorder) RecordDecision(userID, nodeID, ns, path string, allowed bool, status int, reason string) {
 	select {
-	case r.queue <- entry{nodeID, ns, path, allowed, status, reason}:
+	case r.queue <- entry{userID, nodeID, ns, path, allowed, status, reason}:
 	default:
 		r.log.Warn("audit: queue full, decision dropped", "node", nodeID, "path", path)
 	}
@@ -82,9 +85,9 @@ func (r *Recorder) write(ctx context.Context, e entry) {
 	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	const q = `
-		INSERT INTO audit_log (node_id, ns, path, allowed, status, reason)
-		VALUES ($1, $2, $3, $4, NULLIF($5, 0), NULLIF($6, ''))`
-	if _, err := r.pool.Exec(writeCtx, q, e.nodeID, e.ns, e.path, e.allowed, e.status, e.reason); err != nil {
+		INSERT INTO audit_log (user_id, node_id, ns, path, allowed, status, reason)
+		VALUES (NULLIF($1, '')::uuid, $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, ''))`
+	if _, err := r.pool.Exec(writeCtx, q, e.userID, e.nodeID, e.ns, e.path, e.allowed, e.status, e.reason); err != nil {
 		r.log.Warn("audit: cannot record decision", "err", err)
 	}
 }

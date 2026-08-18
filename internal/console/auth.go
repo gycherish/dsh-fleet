@@ -32,6 +32,7 @@ const (
 	PathOverlay = Prefix + "/overlay.js"
 	PathAccount = Prefix + "/account"
 	PathPeople  = Prefix + "/people"
+	PathAudit   = Prefix + "/audit"
 )
 
 // SessionCookie is the browser session cookie name.
@@ -229,4 +230,17 @@ func sanitizeNext(next string) string {
 		return "/"
 	}
 	return next
+}
+
+// SelectedUser reports the signed-in account's id, for the audit trail.
+//
+// A string rather than a uuid so the proxy can take it without importing this
+// package's types; empty means nobody was signed in, which the audit schema
+// stores as NULL.
+func SelectedUser(r *http.Request) string {
+	user := UserFrom(r.Context())
+	if user == nil {
+		return ""
+	}
+	return user.ID.String()
 }
