@@ -4,17 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#070b12">
 <title>dsh-fleet — 一个控制台管理你所有的 DeepSeek Harness 机器</title>
 <meta name="description" content="用一个带认证的控制台访问你所有跑着 DeepSeek Harness 的机器，手机也能用。节点主动拨出，不需要任何入站端口。">
+<meta property="og:title" content="dsh-fleet">
+<meta property="og:description" content="用一个带认证的控制台管理你所有跑着 DeepSeek Harness 的机器。节点主动拨出——不用开放入站端口，不用在路由器上打洞。">
 <link rel="alternate" hreflang="en" href="index.html">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
 </head>
 <body>
 
-<header class="top">
-  <div class="wrap">
+<header class="mast">
+  <div class="wrap wide">
     <div class="bar">
-      <a class="mark" href="zh.html">dsh-fleet</a>
+      <a class="mark" href="zh.html"><span class="badge" aria-hidden="true">dF</span> dsh-fleet</a>
       <nav>
         <a href="#how">原理</a>
         <a href="#start">上手</a>
@@ -22,9 +27,17 @@
         <a href="index.html" hreflang="en">English</a>
       </nav>
     </div>
+  </div>
+</header>
 
-    <div class="hero">
-      <h1>你的机器，<br>随你在哪。</h1>
+<section class="hero-stage">
+  <div class="blob a" aria-hidden="true"></div>
+  <div class="blob b" aria-hidden="true"></div>
+  <canvas id="sky" class="sky" aria-hidden="true"></canvas>
+  <div class="wrap wide hero">
+    <div>
+      <p class="kicker"><span class="pulse" aria-hidden="true"></span> 主动拨出 · 带认证 · 本地执行</p>
+      <h1>你的机器，<br><span class="glow">随你在哪。</span></h1>
       <p>
         用一个带认证的控制台管理你所有跑着
         <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
@@ -35,9 +48,52 @@
         <a class="btn solid" href="#start">开始使用</a>
         <a class="btn ghost" href="https://github.com/gycherish/dsh-fleet">源码</a>
       </div>
+      <div class="stats">
+        <div class="stat"><b>0</b><span>入站端口</span></div>
+        <div class="stat"><b>1</b><span>个控制台</span></div>
+        <div class="stat"><b>在机器上</b><span>git · 编译 · 测试</span></div>
+      </div>
     </div>
+
+    <aside class="deck" aria-hidden="true">
+      <div class="chrome">
+        <i></i><i></i><i></i>
+        <span class="url">fleet.example.com/_fleet/</span>
+      </div>
+      <div class="body">
+        <div class="brand"><span class="mini">dF</span> dsh-fleet</div>
+        <p class="title">你的机器</p>
+        <p class="lede">打开一台，从这里驱动它的 dsh。</p>
+        <div class="machine">
+          <div class="row">
+            <span class="dot on"></span>
+            studio
+            <span class="tag">当前</span>
+            <span class="state">在线</span>
+          </div>
+          <div class="meta"><span>linux</span><span>dsh 0.1.0</span><span>3 agents</span></div>
+        </div>
+        <div class="machine">
+          <div class="row">
+            <span class="dot on"></span>
+            笔记本
+            <span class="state">在线</span>
+          </div>
+          <div class="meta"><span>darwin</span><span>dsh 0.1.0</span><span>2 agents</span></div>
+        </div>
+        <div class="machine">
+          <div class="row">
+            <span class="dot warn"></span>
+            rack-1
+            <span class="state">2 小时前见过</span>
+          </div>
+          <div class="meta"><span>linux</span><span>没有上行</span></div>
+        </div>
+        <p class="foot">/_fleet/ · 手机上回到选择页的入口</p>
+      </div>
+    </aside>
   </div>
-</header>
+</section>
 
 <main class="wrap">
 
@@ -55,6 +111,25 @@
     dsh-fleet 补上这缺的一层，并顺带给你多机视图。它不 fork dsh——节点插件是一个普通的 Cordis
     插件，挂在 dsh 本来就设计成传输无关的网关上。
   </p>
+
+  <div class="bento">
+    <div class="tile">
+      <h3>机器主动拨上来</h3>
+      <p>上行是向外的 WSS。酒店 Wi-Fi 上的笔记本、CGNAT 后面的盒子、从没拿过公网名的台式机——它们都向上够。入站什么都不开。</p>
+    </div>
+    <div class="tile">
+      <h3>手机是正经客户端</h3>
+      <p>HTTPS 是必需的，因为 dsh 客户端需要安全上下文。反向代理终止 TLS，登录，选一台机器。把 <code>/_fleet/</code> 加到书签，方便回来。</p>
+    </div>
+    <div class="tile">
+      <h3>只搬字节</h3>
+      <p>控制面从不解析 dsh 的接口。帧保持不透明。dsh 升级不必等 dsh-fleet 发版。</p>
+    </div>
+    <div class="tile">
+      <h3>仍然是真实界面</h3>
+      <p>浏览器加载的是那台节点自己的 dsh 界面，经上行通道送达——不是复刻品。机器上有了新按钮，你这边就会看见。</p>
+    </div>
+  </div>
 </section>
 
 <section id="how">
@@ -72,6 +147,13 @@
         <marker id="z-up" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
           <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--up)"/>
         </marker>
+        <filter id="z-glow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="2.2" result="b"/>
+          <feMerge>
+            <feMergeNode in="b"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
 
       <rect class="sv-panel" x="238" y="6" width="164" height="42" rx="5"/>
@@ -80,6 +162,9 @@
 
       <path class="sv-line" d="M320 50 V84" marker-end="url(#z-acc)"/>
       <text class="sv-s" x="330" y="72">HTTPS + WS</text>
+      <circle class="pkt" r="3" filter="url(#z-glow)">
+        <animateMotion dur="1.8s" repeatCount="indefinite" path="M320 50 V84"/>
+      </circle>
 
       <rect class="sv-panel" x="178" y="88" width="284" height="64" rx="5"/>
       <text class="sv-t" x="320" y="112" text-anchor="middle">dshf — 控制面</text>
@@ -90,6 +175,16 @@
       <path class="sv-up" d="M320 214 V158" marker-end="url(#z-up)"/>
       <path class="sv-up" d="M522 214 V176 H340 V158" marker-end="url(#z-up)"/>
       <text class="sv-s" x="352" y="192">向外的 WSS —— 机器主动拨上来</text>
+
+      <circle class="pkt" r="3.2" filter="url(#z-glow)">
+        <animateMotion dur="2.6s" repeatCount="indefinite" path="M118 214 V176 H300 V158"/>
+      </circle>
+      <circle class="pkt" r="3.2" filter="url(#z-glow)">
+        <animateMotion dur="2.2s" repeatCount="indefinite" path="M320 214 V158"/>
+      </circle>
+      <circle class="pkt" r="3.2" filter="url(#z-glow)">
+        <animateMotion dur="2.9s" repeatCount="indefinite" begin="0.6s" path="M522 214 V176 H340 V158"/>
+      </circle>
 
       <rect class="sv-node" x="46" y="218" width="144" height="56" rx="5"/>
       <text class="sv-t" x="118" y="240" text-anchor="middle">台式机</text>
@@ -138,27 +233,37 @@
   <p class="label">上手</p>
   <h2>两台机器，五分钟</h2>
 
-  <p>先起控制面。Docker 是推荐的部署方式。</p>
+  <div class="steps">
+    <div class="step">
+      <div class="n">1</div>
+      <div>
+        <h3>先起控制面</h3>
+        <p>Docker 是推荐的部署方式。</p>
 <pre><code>cp deploy/.env.example deploy/.env    <span class="c"># 改掉两个密码</span>
 docker compose -f deploy/docker-compose.yml up -d</code></pre>
-
-  <p>注册一台机器，拿到它的一次性 token。</p>
-<pre><code>docker compose -f deploy/docker-compose.yml exec dshf \
-  dshf node add laptop --label "我的笔记本"</code></pre>
-
-  <p>然后在那台机器上装插件，照常启动 <code>dsh web</code>。</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div>
+        <h3>签发 token</h3>
+        <p>登录后在<strong>「你的账户」</strong>里给自己建一个 token。控制台只显示一次，旁边就是机器需要的全部信息。</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div>
+        <h3>让机器主动拨出</h3>
+        <p>在那台机器上装插件、启动 <code>dsh web</code>，然后到 <code>http://127.0.0.1:3080/_dshf-setup</code> 把地址、用户名和 token 粘进去。</p>
 <pre><code>dsh plugin --profile web add &lt;节点插件&gt;
-
-export DSH_FLEET_URL=wss://fleet.example.com/uplink
-export DSH_FLEET_NODE_ID=laptop
-export DSH_FLEET_TOKEN=nt_...
-
 dsh web</code></pre>
-
-  <p>
-    没有配置 <code>DSH_FLEET_URL</code> 时插件完全不生效，所以装上它不会改变
-    <code>dsh web</code> 在那台机器上原本的行为。
-  </p>
+        <p>
+          没有配置 fleet 地址时插件完全不生效，所以装上它不会改变
+          <code>dsh web</code> 在那台机器上原本的行为。
+        </p>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="honest">
@@ -178,7 +283,7 @@ dsh web</code></pre>
 </main>
 
 <footer>
-  <div class="wrap row">
+  <div class="wrap wide row">
     <span>MIT</span>
     <a href="https://github.com/gycherish/dsh-fleet">仓库</a>
     <a href="https://github.com/gycherish/dsh-fleet/blob/main/docs/envelope.md">通信协议</a>

@@ -4,17 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#070b12">
 <title>dsh-fleet — one console for your DeepSeek Harness machines</title>
 <meta name="description" content="Reach every machine you run DeepSeek Harness on from one authenticated console, including your phone. Nodes dial out, so they need no inbound port.">
+<meta property="og:title" content="dsh-fleet">
+<meta property="og:description" content="One authenticated console for every machine you run DeepSeek Harness on. Nodes dial out — no inbound port, no hole in the router.">
 <link rel="alternate" hreflang="zh" href="zh.html">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
 </head>
 <body>
 
-<header class="top">
-  <div class="wrap">
+<header class="mast">
+  <div class="wrap wide">
     <div class="bar">
-      <a class="mark" href="./">dsh-fleet</a>
+      <a class="mark" href="./"><span class="badge" aria-hidden="true">dF</span> dsh-fleet</a>
       <nav>
         <a href="#how">How</a>
         <a href="#start">Start</a>
@@ -22,9 +27,17 @@
         <a href="zh.html" hreflang="zh">中文</a>
       </nav>
     </div>
+  </div>
+</header>
 
-    <div class="hero">
-      <h1>Your machines,<br>wherever you are.</h1>
+<section class="hero-stage">
+  <div class="blob a" aria-hidden="true"></div>
+  <div class="blob b" aria-hidden="true"></div>
+  <canvas id="sky" class="sky" aria-hidden="true"></canvas>
+  <div class="wrap wide hero">
+    <div>
+      <p class="kicker"><span class="pulse" aria-hidden="true"></span> outbound · authenticated · local</p>
+      <h1>Your machines,<br><span class="glow">wherever you are.</span></h1>
       <p>
         One authenticated console for every machine you run
         <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> on —
@@ -35,9 +48,52 @@
         <a class="btn solid" href="#start">Get started</a>
         <a class="btn ghost" href="https://github.com/gycherish/dsh-fleet">Source</a>
       </div>
+      <div class="stats">
+        <div class="stat"><b>0</b><span>inbound ports</span></div>
+        <div class="stat"><b>1</b><span>console</span></div>
+        <div class="stat"><b>on-box</b><span>git · build · test</span></div>
+      </div>
     </div>
+
+    <aside class="deck" aria-hidden="true">
+      <div class="chrome">
+        <i></i><i></i><i></i>
+        <span class="url">fleet.example.com/_fleet/</span>
+      </div>
+      <div class="body">
+        <div class="brand"><span class="mini">dF</span> dsh-fleet</div>
+        <p class="title">Your machines</p>
+        <p class="lede">Open one to drive its dsh from here.</p>
+        <div class="machine">
+          <div class="row">
+            <span class="dot on"></span>
+            studio
+            <span class="tag">open</span>
+            <span class="state">online</span>
+          </div>
+          <div class="meta"><span>linux</span><span>dsh 0.1.0</span><span>3 agents</span></div>
+        </div>
+        <div class="machine">
+          <div class="row">
+            <span class="dot on"></span>
+            laptop
+            <span class="state">online</span>
+          </div>
+          <div class="meta"><span>darwin</span><span>dsh 0.1.0</span><span>2 agents</span></div>
+        </div>
+        <div class="machine">
+          <div class="row">
+            <span class="dot warn"></span>
+            rack-1
+            <span class="state">seen 2h ago</span>
+          </div>
+          <div class="meta"><span>linux</span><span>no uplink</span></div>
+        </div>
+        <p class="foot">/_fleet/ · the way back on a phone</p>
+      </div>
+    </aside>
   </div>
-</header>
+</section>
 
 <main class="wrap">
 
@@ -57,6 +113,25 @@
     fork dsh: the node plugin is an ordinary Cordis plugin over a gateway dsh already designed to
     be transport-agnostic.
   </p>
+
+  <div class="bento">
+    <div class="tile">
+      <h3>The machine dials you</h3>
+      <p>Uplink is outbound WSS. Laptops on hotel Wi-Fi, boxes behind CGNAT, a desktop that never got a public name — they all reach up. Nothing inbound is opened.</p>
+    </div>
+    <div class="tile">
+      <h3>A phone is a real client</h3>
+      <p>HTTPS is required, because the dsh client needs a secure context. Terminate TLS at a proxy, sign in, pick a machine. Bookmark <code>/_fleet/</code> for the way back.</p>
+    </div>
+    <div class="tile">
+      <h3>Bytes, not business logic</h3>
+      <p>The control plane never parses dsh's API. Frames stay opaque. A dsh upgrade does not wait on a dsh-fleet release.</p>
+    </div>
+    <div class="tile">
+      <h3>Still the real UI</h3>
+      <p>The browser loads that node's own dsh interface through the uplink — not a clone of it. New buttons appear when the machine has them.</p>
+    </div>
+  </div>
 </section>
 
 <section id="how">
@@ -74,29 +149,45 @@
         <marker id="a-up" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
           <path d="M0,0 L8,3.2 L0,6.4 z" fill="var(--up)"/>
         </marker>
+        <filter id="a-glow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="2.2" result="b"/>
+          <feMerge>
+            <feMergeNode in="b"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
 
-      <!-- browser -->
       <rect class="sv-panel" x="238" y="6" width="164" height="42" rx="5"/>
       <text class="sv-t" x="320" y="26" text-anchor="middle">phone · laptop</text>
       <text class="sv-s" x="320" y="39" text-anchor="middle">any browser</text>
 
       <path class="sv-line" d="M320 50 V84" marker-end="url(#a-acc)"/>
       <text class="sv-s" x="330" y="72">HTTPS + WS</text>
+      <circle class="pkt" r="3" filter="url(#a-glow)">
+        <animateMotion dur="1.8s" repeatCount="indefinite" path="M320 50 V84"/>
+      </circle>
 
-      <!-- control plane -->
       <rect class="sv-panel" x="178" y="88" width="284" height="64" rx="5"/>
       <text class="sv-t" x="320" y="112" text-anchor="middle">dshf — the control plane</text>
       <text class="sv-s" x="320" y="130" text-anchor="middle">accounts · machine registry · frame routing</text>
       <text class="sv-s" x="320" y="144" text-anchor="middle">PostgreSQL</text>
 
-      <!-- uplinks -->
       <path class="sv-up" d="M118 214 V176 H300 V158" marker-end="url(#a-up)"/>
       <path class="sv-up" d="M320 214 V158" marker-end="url(#a-up)"/>
       <path class="sv-up" d="M522 214 V176 H340 V158" marker-end="url(#a-up)"/>
       <text class="sv-s" x="352" y="192">outbound WSS — the machine dials up</text>
 
-      <!-- nodes -->
+      <circle class="pkt" r="3.2" filter="url(#a-glow)">
+        <animateMotion dur="2.6s" repeatCount="indefinite" path="M118 214 V176 H300 V158"/>
+      </circle>
+      <circle class="pkt" r="3.2" filter="url(#a-glow)">
+        <animateMotion dur="2.2s" repeatCount="indefinite" path="M320 214 V158"/>
+      </circle>
+      <circle class="pkt" r="3.2" filter="url(#a-glow)">
+        <animateMotion dur="2.9s" repeatCount="indefinite" begin="0.6s" path="M522 214 V176 H340 V158"/>
+      </circle>
+
       <rect class="sv-node" x="46" y="218" width="144" height="56" rx="5"/>
       <text class="sv-t" x="118" y="240" text-anchor="middle">desktop</text>
       <text class="sv-s" x="118" y="256" text-anchor="middle">dsh + node plugin</text>
@@ -144,27 +235,37 @@
   <p class="label">Getting started</p>
   <h2>Two machines, five minutes</h2>
 
-  <p>Bring up the control plane. Docker is the supported deployment.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="n">1</div>
+      <div>
+        <h3>Bring up the control plane</h3>
+        <p>Docker is the supported deployment.</p>
 <pre><code>cp deploy/.env.example deploy/.env    <span class="c"># change both passwords</span>
 docker compose -f deploy/docker-compose.yml up -d</code></pre>
-
-  <p>Register a machine and mint its one-time token.</p>
-<pre><code>docker compose -f deploy/docker-compose.yml exec dshf \
-  dshf node add laptop --label "My laptop"</code></pre>
-
-  <p>Then on that machine, install the plugin and start <code>dsh web</code> as you already do.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div>
+        <h3>Mint a token</h3>
+        <p>Sign in, then create a token for yourself under <strong>Your account</strong>. The console shows it once, beside everything a machine needs.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div>
+        <h3>Let a machine dial out</h3>
+        <p>On that machine, install the plugin, start <code>dsh web</code>, and paste the address, username and token at <code>http://127.0.0.1:3080/_dshf-setup</code>.</p>
 <pre><code>dsh plugin --profile web add &lt;the node plugin&gt;
-
-export DSH_FLEET_URL=wss://fleet.example.com/uplink
-export DSH_FLEET_NODE_ID=laptop
-export DSH_FLEET_TOKEN=nt_...
-
 dsh web</code></pre>
-
-  <p>
-    Without <code>DSH_FLEET_URL</code> the plugin stays inert, so installing it never changes how
-    <code>dsh web</code> already behaves on that machine.
-  </p>
+        <p>
+          Without a fleet URL the plugin stays inert, so installing it never changes how
+          <code>dsh web</code> already behaves on that machine.
+        </p>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="honest">
@@ -184,7 +285,7 @@ dsh web</code></pre>
 </main>
 
 <footer>
-  <div class="wrap row">
+  <div class="wrap wide row">
     <span>MIT</span>
     <a href="https://github.com/gycherish/dsh-fleet">Repository</a>
     <a href="https://github.com/gycherish/dsh-fleet/blob/main/docs/envelope.md">Wire protocol</a>
