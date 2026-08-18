@@ -60,30 +60,24 @@ cp deploy/.env.example deploy/.env    # change both passwords
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-Register a machine and mint its one-time token:
+Sign in, then create a token for yourself under **Your account**. The console shows it once, beside everything a machine needs.
 
-```sh
-docker compose -f deploy/docker-compose.yml exec dshf \
-  dshf node add laptop --label "My laptop"
-```
-
-Also available: `dshf node ls`, `dshf node revoke <id>`, `dshf user add <name>`.
+Also available from the CLI: `dshf node ls`, `dshf user add <name>`, `dshf user token add <name>`.
 
 ## Connecting a machine
 
-Install the plugin on the machine you want to reach, then set three environment variables and start `dsh web` as usual:
+Install the plugin, start `dsh web` as usual, and open its setup page on that machine:
 
 ```sh
 dsh plugin --profile web add <this package>
-
-export DSH_FLEET_URL=wss://fleet.example.com/uplink
-export DSH_FLEET_NODE_ID=laptop
-export DSH_FLEET_TOKEN=nt_...
-
 dsh web
 ```
 
-Without `DSH_FLEET_URL` the plugin stays inert, so installing it never changes how `dsh web` already behaves.
+Then visit **`http://127.0.0.1:3080/_dshf-setup`** and paste the address, your username, and the token. Saving reloads the plugin, and the machine registers itself — no second step on the control plane, and no restart. Its name defaults to the machine's hostname.
+
+That page is served only on the machine itself: it can change which control plane the machine answers to, so the uplink refuses to forward it.
+
+A container with no browser can set `DSH_FLEET_URL`, `DSH_FLEET_USERNAME` and `DSH_FLEET_TOKEN` instead, or use a machine token from `dshf node add <id>` with no username. Unconfigured, the plugin loads and connects to nothing, so installing it never changes how `dsh web` already behaves.
 
 Opening a machine from the chooser hands it the origin root, because the dsh client addresses `/api` and its assets absolutely and nothing else can work. One browser therefore drives one machine at a time, and **`/_fleet/` is the way back** to the chooser — worth a bookmark on a phone.
 
@@ -103,6 +97,10 @@ go run ./cmd/dshf serve                                       # the control plan
 Copy `.env.local.example` to `.env.local` and export it first; the file header shows how. Afterwards only `pixi run pg-start` / `pg-stop` are needed.
 
 The node plugin builds **against a local harness checkout**, expected as `deepseek-harness` beside this repository and already built. The published `@deepseek-ai` packages are incomplete for now and cannot serve as a build source.
+
+Verified against **dsh 0.1.0-rc.7**.
+
+> Worth revisiting: rc.6 retired the api-proxy namespace allowlist, so a plugin that registers a settings namespace is now configurable from dsh's own **Settings → Plugins** page, keyed on that namespace. The setup page above exists because that was not true when it was written. What still stands in the way is the browser half: it must be built in the client module system's factory format, whose build preset dsh does not publish.
 
 ## Design note
 

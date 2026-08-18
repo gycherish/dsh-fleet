@@ -60,30 +60,24 @@ cp deploy/.env.example deploy/.env    # 改掉两个密码
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-注册一台机器，拿到它的一次性 token：
+登录后在**「你的账户」**里给自己建一个 token。控制台只显示一次，旁边就是机器需要的全部信息。
 
-```sh
-docker compose -f deploy/docker-compose.yml exec dshf \
-  dshf node add laptop --label "我的笔记本"
-```
-
-其他命令：`dshf node ls`、`dshf node revoke <id>`、`dshf user add <name>`。
+命令行也有：`dshf node ls`、`dshf user add <name>`、`dshf user token add <name>`。
 
 ## 接入一台机器
 
-在要被管理的机器上装插件，设三个环境变量，照常启动 `dsh web`：
+在要被管理的机器上装插件、照常启动 `dsh web`，然后打开它自己的配置页：
 
 ```sh
 dsh plugin --profile web add <这个包>
-
-export DSH_FLEET_URL=wss://fleet.example.com/uplink
-export DSH_FLEET_NODE_ID=laptop
-export DSH_FLEET_TOKEN=nt_...
-
 dsh web
 ```
 
-没有配置 `DSH_FLEET_URL` 时插件完全不生效，所以装上它不会改变 `dsh web` 原本的行为。
+访问 **`http://127.0.0.1:3080/_dshf-setup`**，把地址、用户名和 token 粘进去。保存后插件热重载，机器自己完成注册——控制面那边不用再操作，dsh 也不用重启。机器名默认取本机主机名。
+
+这个页面只在机器本机提供：它能改「这台机器听哪个控制面」，所以上行链路拒绝转发它。
+
+没有浏览器的容器可以改设 `DSH_FLEET_URL`、`DSH_FLEET_USERNAME`、`DSH_FLEET_TOKEN`，或者用 `dshf node add <id>` 的机器 token 而不填用户名。未配置时插件照常加载但不连接，所以装上它不会改变 `dsh web` 原本的行为。
 
 从选择页打开一台机器时，它会拿到 origin 根目录——因为 dsh 客户端用绝对路径寻址 `/api` 和静态资源，除此之外没有别的办法。所以一个浏览器同时只驱动一台机器，而**回到选择页的入口是 `/_fleet/`**，手机上建议加个书签。
 
@@ -103,6 +97,10 @@ go run ./cmd/dshf serve                                       # 控制面
 先把 `.env.local.example` 复制成 `.env.local` 并导出，导出方式见文件头部注释。之后只需要 `pixi run pg-start` / `pg-stop`。
 
 节点插件目前**对着本地的 harness 源码构建**，需要 `deepseek-harness` 检出在本仓库旁边并已构建。npm 上已发布的 `@deepseek-ai` 包目前还不完整，暂时不能作为构建来源。
+
+已对 **dsh 0.1.0-rc.7** 验证。
+
+> 值得回头看的一件事：rc.6 撤掉了 api-proxy 的 namespace 白名单，注册了 settings namespace 的插件现在可以按该 namespace 为键，出现在 dsh 自己的**设置 → 插件**页里。上面那个配置页之所以存在，是因为写它的时候还做不到。现在唯一还挡在前面的是浏览器半边：它必须用客户端模块系统的工厂格式构建，而那个构建预设 dsh 没有发布。
 
 ## 设计要点
 
