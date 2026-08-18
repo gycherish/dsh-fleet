@@ -1,0 +1,85 @@
+name: Pages
+
+# The site is hand-written static files under docs/, so a push that touches
+# them is the whole trigger — the rest of the repo can move without a redeploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Unlike CI, an in-flight run is not cancelled: deploy-pages replaces the live
+# site, and a half-published site is worse than a slightly stale one. A newer
+# run waits, and only the newest queued one survives the wait.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # configure-pages needs this only for `enablement` below.
+      pages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Local references resolve
+        # Every path in the site is relative, which is what lets it live under
+        # /dsh-fleet/ without a base URL. The failure mode that follows from
+        # that is silent: a renamed asset still deploys, and only looks broken
+        # in the browser. So the check is whether every local href/src exists.
+        working-directory: docs
+        run: |
+          missing=$(
+            grep -ho -E '(href|src)="[^"#?][^"]*"' *.html \
+              | sed -E 's/^[a-z:]+="//; s/"$//; s/[#?].*$//' \
+              | grep -vE '^([a-z][a-z0-9+.-]*:|//)' \
+              | sort -u \
+              | while read -r ref; do [ -e "$ref" ] || echo "  $ref"; done
+          )
+          if [ -n "$missing" ]; then
+            echo "::error::the site links to files that are not in docs/:"
+            echo "$missing"
+            exit 1
+          fi
+
+      - name: Configure Pages
+        # `enablement` turns Pages on and points it at Actions the first time
+        # this runs, so a fresh clone of this repo deploys without anyone
+        # visiting Settings. If Pages is already enabled against a *branch*,
+        # this cannot override it — switch the source by hand, once.
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy
+    # Pull requests get the check above and stop there; only main publishes.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
